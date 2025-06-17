@@ -158,7 +158,6 @@ struct disk_state {
 };
 
 int fd;
-FILE* selected_disk_fp;
 char serial_dev[256];
 unsigned char buf[256];
 unsigned char converted_buf[256];
@@ -205,7 +204,6 @@ int main(int argc, char* argv[])
 
 	int c;
 	int disk_num;
-	int send_btldr = 0;
 	char* filename_disks[4];
 	char* filename_btldr = NULL;
 	while ((c = getopt(argc, argv, "-1:2:3:4:b:r:w:")) != -1)
@@ -247,7 +245,6 @@ int main(int argc, char* argv[])
 				}
 				break;
 			case 'b': //bootloader
-				send_btldr = 1;
 				filename_btldr = optarg;
 				break;
 			case '?':
@@ -291,7 +288,7 @@ int main(int argc, char* argv[])
 	}
 
 	FILE* btldr = NULL;
-	if (send_btldr)
+	if (filename_btldr)
 	{
 		btldr = fopen(filename_btldr, "r");
 		if (btldr == NULL)
@@ -312,7 +309,7 @@ int main(int argc, char* argv[])
 	baud = baud_lookup[baud].baud_val;
 	fd = init_comm(serial_dev,baud,two_stop);
 
-	if (send_btldr)
+	if (btldr)
 	{
 		printf("Sending bootloader...\n");
 		while (!feof(btldr))
