@@ -114,6 +114,8 @@
 #define NUMBER_OF_BLOCKS 06260 //number of blocks in a single RK05 side
 #define FILE_LENGTH (NUMBER_OF_BLOCKS * BLOCK_SIZE * BYTES_PER_WORD) //length of RK05 image
 
+#define DIAL_SUB_DISK_BLK_COUNT 0400
+
 #define DEBUG
 #define REALLY_DEBUG
 
@@ -170,6 +172,8 @@ int num_bytes;
 int half_block = 0;
 int block_offset = 0;
 
+int dial_mode = 0;
+
 struct disk_state disks[DISK_COUNT] = {0};
 struct disk_state* selected_disk_state = NULL;
 
@@ -199,7 +203,7 @@ int main(int argc, char* argv[])
 	int disk_num;
 	char* filename_disks[4];
 	char* filename_btldr = NULL;
-	while ((c = getopt(argc, argv, "-1:2:3:4:b:r:w:")) != -1)
+	while ((c = getopt(argc, argv, "-1:2:3:4:b:r:w:d:")) != -1)
 	{
 		switch (c)
 		{
@@ -239,6 +243,9 @@ int main(int argc, char* argv[])
 				break;
 			case 'b': //bootloader
 				filename_btldr = optarg;
+				break;
+			case 'd': //LAP6-DIAL-MS mode
+				dial_mode = 1;
 				break;
 			case '?':
 				printf(usage, argv[0]);
@@ -426,6 +433,7 @@ void int_handler(int sig)
 
 int initialize_xfr()
 {
+	//for OS/8:
 	//get function
 	//get buffer address
 	//get starting block number
@@ -436,6 +444,13 @@ int initialize_xfr()
 	//if write, write until transfer is done, send ack
 	//if done, just send ack
 	//if error, just send ack
+
+	//for DIAL, some things change:
+	//get unit number + read/write (still bit0 as in os8)
+	//get buffer address
+	//get starting block number
+	//get block count
+	//... rest remains the same
 
 	//XXX get starting address of buffer
 	int current_word = 0;
@@ -464,11 +479,11 @@ int initialize_xfr()
 		retval = -1;
 	}
 
-	receive_buf(buf, 6); //get three words;
+	receive_buf(buf, dial_mode ? 8 : 6); //get three words if os8; four if DIAL
 
 	current_word = decode_word(buf, 0); // function word
 
-	if (current_word & 07)
+	if (current_word & 07 && !dial_mode)
 	{
 #ifdef DEBUG
 		printf(MAKE_YELLOW "Received special device code %o\n" RESET_COLOR, current_word & 07);
@@ -492,13 +507,28 @@ int initialize_xfr()
 		}
 	}
 	
-	num_pages = (current_word & 03700) >> 6;
-	if (num_pages == 0)
-		num_pages = 040;
-	cdf_instr = 06201 | (current_word & 070);
-	field = (current_word & 070) >> 3;
-	buffer_addr = decode_word(buf, 1);
-	start_block = decode_word(buf, 2);
+	// Process OS/8 arguments
+	if(!dial_mode)
+	{
+		num_pages = (current_word & 03700) >> 6;
+		if (num_pages == 0)
+			num_pages = 040;
+		cdf_instr = 06201 | (current_word & 070);
+		field = (current_word & 070) >> 3;
+		buffer_addr = decode_word(buf, 1);
+		start_block = decode_word(buf, 2);
+	}
+	else /* if(dial_mode) */ // DIAL arguments
+	{
+		//In DIAl, we treat each half disk as 6 sub-disks because
+		//DIAL only supports 512 block devices.
+		//We'll treat the bottom 3 bits of the unit number as the sub-disk number.
+		//and use our offset field to add sub-disk offsets.
+		block_offset += (current_word & 07) * DIAL_SUB_DISK_BLK_COUNT;
+		buffer_addr = decode_word(buf, 1);
+		start_block = decode_word(buf, 2);
+		num_pages = decode_word(buf, 3) * 2; // we use 256 word blocks instead of 128 word os8 records
+	}
 	
 #ifdef DEBUG
 	printf("Disk:     %s\n", disk_num_strings[selected_disk]);
@@ -538,7 +568,7 @@ int initialize_xfr()
 		retval = -1;
 	}
 	
-	if ((field == 0) && (buffer_addr + (num_pages * PAGE_SIZE) > 07600))
+	if ((field == 0) && (buffer_addr + (num_pages * PAGE_SIZE) > 07600) && !dial_mode)
 	{
 		fprintf(stderr, MAKE_RED "Warning: client asking to overwrite OS/8 resident page!\n" RESET_COLOR);
 		acknowledgment = NACK | 4;
