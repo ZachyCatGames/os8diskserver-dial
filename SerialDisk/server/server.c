@@ -159,11 +159,7 @@ struct disk_state {
 
 int fd;
 FILE* selected_disk_fp;
-FILE* btldr;
-char* filename_btldr;
 char serial_dev[256];
-long baud;
-int two_stop;
 unsigned char buf[256];
 unsigned char converted_buf[256];
 unsigned char disk_buf[8200];
@@ -181,8 +177,6 @@ int half_block = 0;
 int block_offset = 0;
 int selected_disk;
 int selected_side;
-
-int send_btldr = 0;
 
 struct disk_state disks[DISK_COUNT];
 struct disk_state* selected_disk_state;
@@ -211,7 +205,9 @@ int main(int argc, char* argv[])
 
 	int c;
 	int disk_num;
+	int send_btldr = 0;
 	char* filename_disks[4];
+	char* filename_btldr = NULL;
 	while ((c = getopt(argc, argv, "-1:2:3:4:b:r:w:")) != -1)
 	{
 		switch (c)
@@ -294,6 +290,7 @@ int main(int argc, char* argv[])
 		       (curr_disk->write_protect ? MAKE_RED "disabled" RESET_COLOR : MAKE_GREEN "enabled" RESET_COLOR));
 	}
 
+	FILE* btldr = NULL;
 	if (send_btldr)
 	{
 		btldr = fopen(filename_btldr, "r");
@@ -305,6 +302,8 @@ int main(int argc, char* argv[])
 		}
 	}
 	
+	long baud;
+	int two_stop;
 	setup_config(&baud,&two_stop,serial_dev);
 	
 	printf("Using serial port %s at %s with %s\n", 
