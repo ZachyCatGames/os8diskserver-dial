@@ -126,6 +126,9 @@ static const char usage[] = "Usage: %s -1 disk1 [-2 disk2] [-3 disk3] [-4 disk4]
 
 void command_loop();
 int initialize_xfr();
+void process_send_bootloader();
+void process_read();
+void process_write();
 void HELPBoot();
 void send_word(int word);
 int decode_word(char* buf, int pos);
@@ -404,23 +407,7 @@ void command_loop()
 				HELPBoot();
 				break;
 			case '@':
-				printf("Booting...\n");
-				if (!read_from_file(disk1, 0, disk_buf, BLOCK_SIZE * BYTES_PER_WORD))
-				{
-					djg_to_pdp(disk_buf, converted_disk_buf, BLOCK_SIZE);
-					if (!transmit_buf(converted_disk_buf, BLOCK_SIZE * BYTES_PER_WORD))
-					{
-						disk_buf[0] = 0200; //trailer
-						if (!transmit_buf(disk_buf, 1))
-							printf(MAKE_GREEN "Done sending block 0\n" RESET_COLOR);
-						else
-							fprintf(stderr, MAKE_RED "Warning: failed to send trailer!\n" RESET_COLOR);
-					}
-					else
-						fprintf(stderr, MAKE_RED "Warning: failed to send block 0!\n" RESET_COLOR);
-				}
-				else
-					fprintf(stderr, MAKE_RED "Warning: failed to read block 0!\n" RESET_COLOR);
+				process_send_bootloader();
 				break;
 			case 'A':
 			case 'B':
@@ -462,76 +449,9 @@ void command_loop()
 					send_word(acknowledgment);		
 						
 					if (direction == WRITE) //********** WRITE ************//
-					{
-						acknowledgment = ACK_DONE;
-					
-						receive_buf(disk_buf, num_bytes); //get data to write
-					
-						if ((c = ser_read(fd, (char *) buf, sizeof(buf))) < 0)
-						{
-							perror("Serial read failure");
-							exit(1);
-						}
-						else if (c != 0)
-						{
-							fprintf(stderr, MAKE_RED "Warning: detected bytes after write!\n" RESET_COLOR);
-							acknowledgment = NACK | 8;
-						}
-					
-						if (half_block)
-						{
-							for (j = num_bytes; j < PAGE_SIZE * BYTES_PER_WORD; j++)
-								disk_buf[j] = 0;
-							total_num_words += PAGE_SIZE;
-						}
-
-						send_word(acknowledgment);
-#ifdef REALLY_DEBUG
-						if (!(acknowledgment & NACK))
-							printf("Sent done acknowledgment\n");
-						else
-							printf("Received too many words, sent NACK\n");
-#endif
-						if (!(acknowledgment & NACK))
-						{
-							pdp_to_djg(disk_buf, converted_disk_buf, total_num_words);
-							write_to_file(selected_disk_fp, (start_block + block_offset) * BLOCK_SIZE * BYTES_PER_WORD, 
-								converted_disk_buf, total_num_words * BYTES_PER_WORD);
-							printf(MAKE_GREEN "Successfully completed write\n" RESET_COLOR);
-						}
-						else
-							fprintf(stderr, MAKE_RED "Warning: failed to complete write!\n" RESET_COLOR);
-					}
+						process_write();
 					else //********** READ ************//
-					{
-						acknowledgment = ACK_DONE;
-						read_from_file(selected_disk_fp, (start_block + block_offset) * BLOCK_SIZE * BYTES_PER_WORD,
-							disk_buf, num_bytes);
-						djg_to_pdp(disk_buf, converted_disk_buf, total_num_words);
-						transmit_buf(converted_disk_buf, num_bytes);
-						if ((c = ser_read(fd, (char *) buf, sizeof(buf))) < 0)
-						{
-							perror("Serial read failure");
-							exit(1);
-						}
-						else if (c != 0)
-						{
-							fprintf(stderr, MAKE_RED "Warning: detected bytes during read!\n" RESET_COLOR);
-							acknowledgment = NACK | 8;
-						}
-					
-						send_word(acknowledgment);
-#ifdef REALLY_DEBUG
-						if (!(acknowledgment & NACK))
-							printf("Sent done acknowledgment\n");
-						else
-							printf("Received words during read, sent NACK\n");
-#endif
-						if (!(acknowledgment & NACK))
-							printf(MAKE_GREEN "Successfully completed read\n" RESET_COLOR);
-						else
-							fprintf(stderr, MAKE_RED "Warning: failed to complete read!\n" RESET_COLOR);
-					}
+						process_read();
 				}
 				break;
 			case 'Q': //quit server
@@ -781,6 +701,100 @@ int initialize_xfr()
 		half_block = 0;
 
 	return retval;
+}
+
+void process_send_bootloader()
+{
+	printf("Booting...\n");
+	if (!read_from_file(disk1, 0, disk_buf, BLOCK_SIZE * BYTES_PER_WORD))
+	{
+		djg_to_pdp(disk_buf, converted_disk_buf, BLOCK_SIZE);
+		if (!transmit_buf(converted_disk_buf, BLOCK_SIZE * BYTES_PER_WORD))
+		{
+			disk_buf[0] = 0200; //trailer
+			if (!transmit_buf(disk_buf, 1))
+				printf(MAKE_GREEN "Done sending block 0\n" RESET_COLOR);
+			else
+				fprintf(stderr, MAKE_RED "Warning: failed to send trailer!\n" RESET_COLOR);
+		}
+		else
+			fprintf(stderr, MAKE_RED "Warning: failed to send block 0!\n" RESET_COLOR);
+	}
+	else
+		fprintf(stderr, MAKE_RED "Warning: failed to read block 0!\n" RESET_COLOR);
+}
+
+void process_read()
+{
+	acknowledgment = ACK_DONE;
+	read_from_file(selected_disk_fp, (start_block + block_offset) * BLOCK_SIZE * BYTES_PER_WORD,
+		       disk_buf, num_bytes);
+	djg_to_pdp(disk_buf, converted_disk_buf, total_num_words);
+	transmit_buf(converted_disk_buf, num_bytes);
+	if ((c = ser_read(fd, (char *) buf, sizeof(buf))) < 0)
+	{
+		perror("Serial read failure");
+		exit(1);
+	}
+	else if (c != 0)
+	{
+		fprintf(stderr, MAKE_RED "Warning: detected bytes during read!\n" RESET_COLOR);
+		acknowledgment = NACK | 8;
+	}
+
+	send_word(acknowledgment);
+	#ifdef REALLY_DEBUG
+	if (!(acknowledgment & NACK))
+		printf("Sent done acknowledgment\n");
+	else
+		printf("Received words during read, sent NACK\n");
+	#endif
+	if (!(acknowledgment & NACK))
+		printf(MAKE_GREEN "Successfully completed read\n" RESET_COLOR);
+	else
+		fprintf(stderr, MAKE_RED "Warning: failed to complete read!\n" RESET_COLOR);
+}
+
+void process_write()
+{
+	acknowledgment = ACK_DONE;
+
+	receive_buf(disk_buf, num_bytes); //get data to write
+
+	if ((c = ser_read(fd, (char *) buf, sizeof(buf))) < 0)
+	{
+		perror("Serial read failure");
+		exit(1);
+	}
+	else if (c != 0)
+	{
+		fprintf(stderr, MAKE_RED "Warning: detected bytes after write!\n" RESET_COLOR);
+		acknowledgment = NACK | 8;
+	}
+
+	if (half_block)
+	{
+		for (j = num_bytes; j < PAGE_SIZE * BYTES_PER_WORD; j++)
+			disk_buf[j] = 0;
+		total_num_words += PAGE_SIZE;
+	}
+
+	send_word(acknowledgment);
+#ifdef REALLY_DEBUG
+	if (!(acknowledgment & NACK))
+		printf("Sent done acknowledgment\n");
+	else
+		printf("Received too many words, sent NACK\n");
+#endif
+	if (!(acknowledgment & NACK))
+	{
+		pdp_to_djg(disk_buf, converted_disk_buf, total_num_words);
+		write_to_file(selected_disk_fp, (start_block + block_offset) * BLOCK_SIZE * BYTES_PER_WORD,
+			      converted_disk_buf, total_num_words * BYTES_PER_WORD);
+		printf(MAKE_GREEN "Successfully completed write\n" RESET_COLOR);
+	}
+	else
+		fprintf(stderr, MAKE_RED "Warning: failed to complete write!\n" RESET_COLOR);
 }
 
 void HELPBoot()
