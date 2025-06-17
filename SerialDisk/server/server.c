@@ -124,6 +124,7 @@ int terminate = 0;
 // although this would not be strictly necessary for non-system devices
 static const char usage[] = "Usage: %s -1 disk1 [-2 disk2] [-3 disk3] [-4 disk4] [-r 1|2|3|4] [-w 1|2|3|4] [-b bootloader]\n";
 
+void command_loop();
 int initialize_xfr();
 void HELPBoot();
 void send_word(int word);
@@ -377,6 +378,10 @@ int main(int argc, char* argv[])
 		printf(MAKE_GREEN "Bootloader sent\n" RESET_COLOR);
 	}
 
+	// Start command loop
+	command_loop();
+}
+
 /*
 // Command processor
 // Accepts the following wakeup commands:
@@ -388,7 +393,8 @@ int main(int argc, char* argv[])
 // Q	- stop operations and shut down the server
 //	- anything else is a (non-fatal) error
 */
-	
+void command_loop()
+{
 	for (;;)
 	{			
 		receive_buf(buf, 1); //wait for command
