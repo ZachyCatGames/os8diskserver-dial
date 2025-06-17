@@ -114,8 +114,8 @@
 #define NUMBER_OF_BLOCKS 06260 //number of blocks in a single RK05 side
 #define FILE_LENGTH (NUMBER_OF_BLOCKS * BLOCK_SIZE * BYTES_PER_WORD) //length of RK05 image
 
-//#define DEBUG
-//#define REALLY_DEBUG
+#define DEBUG
+#define REALLY_DEBUG
 
 int terminate = 0;
 
@@ -170,8 +170,8 @@ int num_bytes;
 int half_block = 0;
 int block_offset = 0;
 
-struct disk_state disks[DISK_COUNT];
-struct disk_state* selected_disk_state;
+struct disk_state disks[DISK_COUNT] = {0};
+struct disk_state* selected_disk_state = NULL;
 
 /*
  * Sent from PDP:  abcd -> XXcccddd XXaaabbb
@@ -214,7 +214,7 @@ int main(int argc, char* argv[])
 			case 'r': //read-protect
 				for(int i = 0; optarg[i] != 0; i++)
 				{
-					disk_num = optarg[i];
+					disk_num = optarg[i] - '1';
 					if(disk_num >= DISK_NUM_MIN && disk_num < DISK_COUNT)
 						disks[disk_num].read_protect = 1;
 					else
@@ -451,9 +451,9 @@ int initialize_xfr()
 	selected_disk = (buf[0] - 'A') / 2;
 	selected_disk_state = &disks[selected_disk];
 
-	// B, D, ... ascii codes are odd, while A, C, ... are even.
+	// B, D, ... ascii codes are even, while A, C, ... are odd.
 	// So we can just check the least significant bit to determine side.
-	selected_side = buf[0] & 1;
+	selected_side = ~buf[0] & 1;
 	block_offset = NUMBER_OF_BLOCKS * selected_side;
 
 	// This disk must be available.
@@ -501,8 +501,8 @@ int initialize_xfr()
 	start_block = decode_word(buf, 2);
 	
 #ifdef DEBUG
-	//printf("Disk:     %s\n", disk_num_strings[selected_disk]);
-	//printf("Side:     %d\n", selected_side);
+	printf("Disk:     %s\n", disk_num_strings[selected_disk]);
+	printf("Side:     %d\n", selected_side);
 	printf("Function: %04o\n", current_word);
 	printf("Buffer:   %04o\n", buffer_addr);
 	printf("Block:    %04o\n", start_block);
