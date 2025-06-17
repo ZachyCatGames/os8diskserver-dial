@@ -132,6 +132,7 @@ void process_write();
 void HELPBoot();
 void send_word(int word);
 int decode_word(char* buf, int pos);
+void cleanup_and_exit(int poweroff);
 void int_handler(int);
 void djg_to_pdp(char* buf_in, char* buf_out, int word_count);
 void pdp_to_djg(char* buf_in, char* buf_out, int word_count);
@@ -456,18 +457,24 @@ void command_loop()
 				break;
 			case 'Q': //quit server
 				printf(MAKE_YELLOW "Received quit signal, server quitting\n" RESET_COLOR);
-				fclose(disk1);
-				fclose(disk2);
-				fclose(disk3);
-				fclose(disk4);
-				system("sudo shutdown -h now");
-				exit(0);
+				cleanup_and_exit(1); // exit w/ shutdown
 			default:
 				fprintf(stderr, MAKE_RED "Received unknown command - ignored - character %04o\n" 
 					RESET_COLOR, buf[0]);
 				break;
 		}
 	}
+}
+
+void cleanup_and_exit(int poweroff) {
+	// Close files and exit.
+	fclose(disk1);
+	fclose(disk2);
+	fclose(disk3);
+	fclose(disk4);
+	if(poweroff) // optional shutdown
+		system("sudo shutdown -h now");
+	exit(0);
 }
 
 void int_handler(int sig)
@@ -477,17 +484,7 @@ void int_handler(int sig)
 	printf("Really quit? [y/N] ");
 	c = getchar();
 	if (c == 'y' || c == 'Y')
-	{
-		if (disk1)
-			fclose(disk1);
-		if (disk2)
-			fclose(disk2);
-		if (disk3)
-			fclose(disk3);
-		if (disk4)
-			fclose(disk4);
-		exit(0);
-	}
+		cleanup_and_exit(0); // exit w/o shutdown
 	else
 		signal(SIGINT, int_handler);
 	getchar();
