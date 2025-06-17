@@ -611,7 +611,7 @@ void process_send_boot_sector()
 void process_read()
 {
 	acknowledgment = ACK_DONE;
-	read_from_file(selected_disk_fp, (start_block + block_offset) * BLOCK_SIZE * BYTES_PER_WORD,
+	read_from_file(selected_disk_state->fp, (start_block + block_offset) * BLOCK_SIZE * BYTES_PER_WORD,
 		       disk_buf, num_bytes);
 	djg_to_pdp(disk_buf, converted_disk_buf, total_num_words);
 	transmit_buf(converted_disk_buf, num_bytes);
@@ -676,7 +676,7 @@ void process_write()
 	if (!(acknowledgment & NACK))
 	{
 		pdp_to_djg(disk_buf, converted_disk_buf, total_num_words);
-		write_to_file(selected_disk_fp, (start_block + block_offset) * BLOCK_SIZE * BYTES_PER_WORD,
+		write_to_file(selected_disk_state->fp, (start_block + block_offset) * BLOCK_SIZE * BYTES_PER_WORD,
 			      converted_disk_buf, total_num_words * BYTES_PER_WORD);
 		printf(MAKE_GREEN "Successfully completed write\n" RESET_COLOR);
 	}
