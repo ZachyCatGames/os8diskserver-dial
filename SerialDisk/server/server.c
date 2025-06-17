@@ -158,7 +158,6 @@ struct disk_state {
 };
 
 int fd;
-char serial_dev[256];
 unsigned char buf[256];
 unsigned char converted_buf[256];
 unsigned char disk_buf[8200];
@@ -301,6 +300,7 @@ int main(int argc, char* argv[])
 	
 	long baud;
 	int two_stop;
+	char serial_dev[256];
 	setup_config(&baud,&two_stop,serial_dev);
 	
 	printf("Using serial port %s at %s with %s\n", 
