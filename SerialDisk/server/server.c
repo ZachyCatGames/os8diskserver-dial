@@ -163,18 +163,12 @@ unsigned char converted_buf[256];
 unsigned char disk_buf[8200];
 unsigned char converted_disk_buf[8200];
 int direction;
-int buffer_addr;
 int start_block;
-int field;
-int cdf_instr;
 int total_num_words;
 int acknowledgment;
 int num_bytes;
-int num_pages;
 int half_block = 0;
 int block_offset = 0;
-int selected_disk;
-int selected_side;
 
 struct disk_state disks[DISK_COUNT];
 struct disk_state* selected_disk_state;
@@ -446,10 +440,16 @@ int initialize_xfr()
 	//XXX get starting address of buffer
 	int current_word = 0;
 	int retval = 0;
+	int selected_disk;
+	int selected_side;
+	int field;
+	int cdf_instr;
+	int num_pages;
+	int buffer_addr;
 
 	// Determine disk number by converting to an index then dividing by 2.
 	selected_disk = (buf[0] - 'A') / 2;
-	selected_disk_state = &disks[selected_disk - 1];
+	selected_disk_state = &disks[selected_disk];
 
 	// B, D, ... ascii codes are odd, while A, C, ... are even.
 	// So we can just check the least significant bit to determine side.
@@ -501,7 +501,7 @@ int initialize_xfr()
 	start_block = decode_word(buf, 2);
 	
 #ifdef DEBUG
-	//printf("Disk:     %s\n", disk_num_strings[selected_disk - 1]);
+	//printf("Disk:     %s\n", disk_num_strings[selected_disk]);
 	//printf("Side:     %d\n", selected_side);
 	printf("Function: %04o\n", current_word);
 	printf("Buffer:   %04o\n", buffer_addr);
@@ -510,7 +510,7 @@ int initialize_xfr()
 
 	printf("Request to %s %d page%s %s side %d on %s disk\n", (direction == WRITE ? "write" : "read"),
 	       num_pages, (num_pages == 1 ? "" : "s"), (direction == WRITE ? "to" : "from"),
-	       selected_side, disk_num_strings[selected_disk - 1]);
+	       selected_side, disk_num_strings[selected_disk]);
 
 	printf("Buffer address %05o, starting block %05o\n", 
 		(field << 12) | buffer_addr, start_block);
