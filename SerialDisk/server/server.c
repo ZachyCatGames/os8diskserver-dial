@@ -447,7 +447,7 @@ int initialize_xfr()
 
 	//for DIAL, some things change:
 	//get unit number + read/write (still bit0 as in os8)
-	//get buffer address
+	//get buffer address (div by 0400)
 	//get starting block number
 	//get block count
 	//... rest remains the same
@@ -483,7 +483,7 @@ int initialize_xfr()
 
 	current_word = decode_word(buf, 0); // function word
 
-	if (current_word & 07 && !dial_mode)
+	if (current_word & 07 && !dial_mode) // doesn't apply in DIAL mode
 	{
 #ifdef DEBUG
 		printf(MAKE_YELLOW "Received special device code %o\n" RESET_COLOR, current_word & 07);
@@ -525,9 +525,11 @@ int initialize_xfr()
 		//We'll treat the bottom 3 bits of the unit number as the sub-disk number.
 		//and use our offset field to add sub-disk offsets.
 		block_offset += (current_word & 07) * DIAL_SUB_DISK_BLK_COUNT;
-		buffer_addr = decode_word(buf, 1);
+		current_word = decode_word(buf, 1);
+		buffer_addr = (current_word & 017) * BLOCK_SIZE;
+		field = (current_word & ~017) >> 4;
 		start_block = decode_word(buf, 2);
-		num_pages = decode_word(buf, 3) * 2; // we use 256 word blocks instead of 128 word os8 records
+		num_pages = decode_word(buf, 3) * 2; // this is 256 word blocks instead of 128 word os8 records
 	}
 	
 #ifdef DEBUG
