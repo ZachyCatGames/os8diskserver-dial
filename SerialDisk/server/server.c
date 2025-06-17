@@ -175,7 +175,6 @@ int field;
 int cdf_instr;
 int total_num_words;
 int acknowledgment;
-int i, j, c;
 int num_bytes;
 int num_pages;
 int half_block = 0;
@@ -206,13 +205,13 @@ struct disk_state* selected_disk_state;
 
 int main(int argc, char* argv[])
 {
-	char* filename_disks[4];
 	struct disk_state* curr_disk;
-	int disk_num;
-	int i;
 
 	signal(SIGINT, int_handler);
 
+	int c;
+	int disk_num;
+	char* filename_disks[4];
 	while ((c = getopt(argc, argv, "-1:2:3:4:b:r:w:")) != -1)
 	{
 		switch (c)
@@ -226,8 +225,7 @@ int main(int argc, char* argv[])
 				filename_disks[disk_num] = optarg;
 				break;
 			case 'r': //read-protect
-				i = 0;
-				for(i = 0; optarg[i] != 0; i++)
+				for(int i = 0; optarg[i] != 0; i++)
 				{
 					disk_num = optarg[i];
 					if(disk_num >= DISK_NUM_MIN && disk_num < DISK_COUNT)
@@ -240,7 +238,7 @@ int main(int argc, char* argv[])
 				}
 				break;
 			case 'w': //write-protect
-				for(i = 0; optarg[i] != 0; i++)
+				for(int i = 0; optarg[i] != 0; i++)
 				{
 					disk_num = optarg[i] - '1';
 					if(disk_num >= DISK_NUM_MIN && disk_num < DISK_COUNT)
@@ -277,7 +275,7 @@ int main(int argc, char* argv[])
 	}
 
 	// Open each disk.
-	for(i = DISK_NUM_MIN; i < DISK_COUNT; i++)
+	for(int i = DISK_NUM_MIN; i < DISK_COUNT; i++)
 	{
 		// noop if not in use.
 		if(!disks[i].in_use)
@@ -395,7 +393,6 @@ void command_loop()
 				}
 				else
 				{
-					i = 0;
 					send_word(acknowledgment);		
 						
 					if (direction == WRITE) //********** WRITE ************//
@@ -417,7 +414,7 @@ void command_loop()
 
 void cleanup_and_exit(int poweroff) {
 	// Close files and exit.
-	for(i = DISK_NUM_MIN; i < DISK_COUNT; i++)
+	for(int i = DISK_NUM_MIN; i < DISK_COUNT; i++)
 		fclose(disks[i].fp);
 	if(poweroff) // optional shutdown
 		system("sudo shutdown -h now");
@@ -451,10 +448,8 @@ int initialize_xfr()
 	//if error, just send ack
 
 	//XXX get starting address of buffer
-	int current_word;
+	int current_word = 0;
 	int retval = 0;
-	i = 0;
-	j = 0;
 
 	if (buf[0] == 'B' || buf[0] == 'D' || buf[0] == 'F' || buf[0] == 'H')
 	{
@@ -501,8 +496,7 @@ int initialize_xfr()
 	}
 
 	receive_buf(buf, 6); //get three words
-	
-	c = 0;
+
 	current_word = decode_word(buf, 0);
 	
 	if (current_word & 07)
@@ -625,6 +619,8 @@ void process_read()
 		       disk_buf, num_bytes);
 	djg_to_pdp(disk_buf, converted_disk_buf, total_num_words);
 	transmit_buf(converted_disk_buf, num_bytes);
+
+	int c = 0;
 	if ((c = ser_read(fd, (char *) buf, sizeof(buf))) < 0)
 	{
 		perror("Serial read failure");
@@ -655,6 +651,7 @@ void process_write()
 
 	receive_buf(disk_buf, num_bytes); //get data to write
 
+	int c;
 	if ((c = ser_read(fd, (char *) buf, sizeof(buf))) < 0)
 	{
 		perror("Serial read failure");
@@ -668,7 +665,7 @@ void process_write()
 
 	if (half_block)
 	{
-		for (j = num_bytes; j < PAGE_SIZE * BYTES_PER_WORD; j++)
+		for (int j = num_bytes; j < PAGE_SIZE * BYTES_PER_WORD; j++)
 			disk_buf[j] = 0;
 		total_num_words += PAGE_SIZE;
 	}
@@ -728,7 +725,6 @@ void HELPBoot()
 		00056, 05041,
 		00014, 05041,		// Kludge to start BOOT3
 	};
-	int i;
 
 	// This cooperates with a bootloader based on
 	// the HELP loarder.
@@ -737,7 +733,7 @@ void HELPBoot()
 		fprintf(stderr, MAKE_RED "Illegal initial word\n" RESET_COLOR);
 		return;
 	}
-	for (i = 0; i < sizeof(boot2)/sizeof(*boot2); i++) {
+	for (int i = 0; i < sizeof(boot2)/sizeof(*boot2); i++) {
 		unsigned int intval;
 		unsigned char byteval;
 		int link;
@@ -756,7 +752,7 @@ void HELPBoot()
 		if (transmit_buf(&byteval, 1))
 			fprintf(stderr, MAKE_RED "Error: failed to send byte!\n" RESET_COLOR);
 	}
-	for (i = 0; i < sizeof(boot3)/sizeof(*boot3); i++) {
+	for (int i = 0; i < sizeof(boot3)/sizeof(*boot3); i++) {
 		//		fprintf(stderr, "%03o\n%03o\n", boot3[i]>>6, boot3[i]&077);
 		disk_buf[0] = boot3[i] >> 6;
 		disk_buf[1] = boot3[i] & 077;
@@ -821,8 +817,7 @@ int decode_word(char* buf, int pos)
 
 void djg_to_pdp(char* buf_in, char* buf_out, int word_count) 
 {
-	int i;
-	for (i = 0; i < word_count * 2; i += 2)
+	for (int i = 0; i < word_count * 2; i += 2)
 	{
 		buf_out[i] = ((buf_in[i + 1] << 2) & 074) | ((buf_in[i] >> 6) & 03); //make 00aaabbb
 		buf_out[i + 1] = (buf_in[i] & 077); //make 00cccddd
@@ -831,8 +826,7 @@ void djg_to_pdp(char* buf_in, char* buf_out, int word_count)
 
 void pdp_to_djg(char* buf_in, char* buf_out, int word_count)
 {
-	int i;
-	for (i = 0; i < word_count * 2; i += 2)
+	for (int i = 0; i < word_count * 2; i += 2)
 	{
 		buf_out[i + 1] = (buf_in[i + 1] >> 2) & 0x0F; //00aaabbb -> 0000aaab
 		buf_out[i] = ((buf_in[i + 1] << 6) & 0300) | (buf_in[i] & 077); //00aaabbb 00cccddd -> bbcccddd
@@ -890,6 +884,7 @@ void receive_buf(char* buf, int length)
 
 int read_from_file(FILE* file, int offset, char* buf, int length)
 {
+	int c;
 	fseek(file, offset, SEEK_SET);
 	if ((c = fread(buf, 1, length, file)) < 0)
 	{
@@ -907,6 +902,7 @@ int read_from_file(FILE* file, int offset, char* buf, int length)
 
 int write_to_file(FILE* file, int offset, char* buf, int length)
 {
+	int c;
 	fseek(file, offset, SEEK_SET);
 	if ((c = fwrite(buf, 1, length, file)) < 0)
 	{
