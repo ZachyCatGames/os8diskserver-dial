@@ -109,11 +109,13 @@
 #define BLOCK_SIZE (PAGE_SIZE * 2)
 #define BYTES_PER_WORD 2
 
+#define DISK_NUM_MIN 0
+#define DISK_COUNT 4
 #define NUMBER_OF_BLOCKS 06260 //number of blocks in a single RK05 side
 #define FILE_LENGTH (NUMBER_OF_BLOCKS * BLOCK_SIZE * BYTES_PER_WORD) //length of RK05 image
 
-//#define DEBUG
-//#define REALLY_DEBUG
+#define DEBUG
+#define REALLY_DEBUG
 
 int terminate = 0;
 
@@ -124,9 +126,22 @@ int terminate = 0;
 // although this would not be strictly necessary for non-system devices
 static const char usage[] = "Usage: %s -1 disk1 [-2 disk2] [-3 disk3] [-4 disk4] [-r 1|2|3|4] [-w 1|2|3|4] [-b bootloader]\n";
 
+static const char *disk_num_strings[4] = {
+	"first",	//disk1
+	"second",	//disk2
+	"third",	//disk3
+	"fourth"	//disk4
+};
+
+void command_loop();
 int initialize_xfr();
+void process_send_boot_sector();
+void process_read();
+void process_write();
+void HELPBoot();
 void send_word(int word);
 int decode_word(char* buf, int pos);
+void cleanup_and_exit(int poweroff);
 void int_handler(int);
 void djg_to_pdp(char* buf_in, char* buf_out, int word_count);
 void pdp_to_djg(char* buf_in, char* buf_out, int word_count);
@@ -135,53 +150,28 @@ int read_from_file(FILE* file, int offset, char* buf, int length);
 void receive_buf(char* buf, int length);
 int transmit_buf(char* buf, int length);
 
+struct disk_state {
+	FILE* fp;
+	short in_use;
+	short read_protect;
+	short write_protect;
+};
+
 int fd;
-FILE* disk1;
-FILE* disk2;
-FILE* disk3;
-FILE* disk4;
-FILE* selected_disk_fp;
-FILE* btldr;
-char* filename_disk1;
-char* filename_disk2;
-char* filename_disk3;
-char* filename_disk4;
-char* filename_btldr;
-char serial_dev[256];
-long baud;
-int two_stop;
 unsigned char buf[256];
 unsigned char converted_buf[256];
 unsigned char disk_buf[8200];
 unsigned char converted_disk_buf[8200];
 int direction;
-int buffer_addr;
 int start_block;
-int field;
-int cdf_instr;
 int total_num_words;
 int acknowledgment;
-int i, j, c;
 int num_bytes;
-int num_pages;
-int read_protect1 = 0;
-int write_protect1 = 0;
-int read_protect2 = 0;
-int write_protect2 = 0;
-int read_protect3 = 0;
-int write_protect3 = 0;
-int read_protect4 = 0;
-int write_protect4 = 0;
 int half_block = 0;
 int block_offset = 0;
-int selected_disk;
-int selected_side;
 
-int use_disk1 = 0;
-int use_disk2 = 0;
-int use_disk3 = 0;
-int use_disk4 = 0;
-int send_btldr = 0;
+struct disk_state disks[DISK_COUNT] = {0};
+struct disk_state* selected_disk_state = NULL;
 
 /*
  * Sent from PDP:  abcd -> XXcccddd XXaaabbb
@@ -201,70 +191,53 @@ int send_btldr = 0;
 
 int main(int argc, char* argv[])
 {
+	struct disk_state* curr_disk;
+
 	signal(SIGINT, int_handler);
 
+	int c;
+	int disk_num;
+	char* filename_disks[4];
+	char* filename_btldr = NULL;
 	while ((c = getopt(argc, argv, "-1:2:3:4:b:r:w:")) != -1)
 	{
 		switch (c)
 		{
 			case '1': //first disk
-				use_disk1 = 1;
-				filename_disk1 = optarg;
-				break;
 			case '2': //second disk
-				use_disk2 = 1;
-				filename_disk2 = optarg;
-				break;
 			case '3': //third disk
-				use_disk3 = 1;
-				filename_disk3 = optarg;
-				break;
 			case '4': //fourth disk
-				use_disk4 = 1;
-				filename_disk4 = optarg;
+				disk_num = c - '1';
+				disks[disk_num].in_use = 1;
+				filename_disks[disk_num] = optarg;
 				break;
 			case 'r': //read-protect
-				i = 0;
-				while (optarg[i] != 0)
+				for(int i = 0; optarg[i] != 0; i++)
 				{
-					if (optarg[i] == '1')
-						read_protect1 = 1;
-					else if (optarg[i] == '2')
-						read_protect2 = 1;
-					else if (optarg[i] == '3')
-						read_protect3 = 1;
-					else if (optarg[i] == '4')
-						read_protect4 = 1;
+					disk_num = optarg[i] - '1';
+					if(disk_num >= DISK_NUM_MIN && disk_num < DISK_COUNT)
+						disks[disk_num].read_protect = 1;
 					else
 					{
 						printf(usage, argv[0]);
 						exit(1);
 					}
-					i++;
 				}
 				break;
 			case 'w': //write-protect
-				i = 0;
-				while (optarg[i] != 0)
+				for(int i = 0; optarg[i] != 0; i++)
 				{
-					if (optarg[i] == '1')
-						write_protect1 = 1;
-					else if (optarg[i] == '2')
-						write_protect2 = 1;
-					else if (optarg[i] == '3')
-						write_protect3 = 1;
-					else if (optarg[i] == '4')
-						write_protect4 = 1;
+					disk_num = optarg[i] - '1';
+					if(disk_num >= DISK_NUM_MIN && disk_num < DISK_COUNT)
+						disks[disk_num].write_protect = 1;
 					else
 					{
 						printf(usage, argv[0]);
 						exit(1);
 					}
-					i++;
 				}
 				break;
 			case 'b': //bootloader
-				send_btldr = 1;
 				filename_btldr = optarg;
 				break;
 			case '?':
@@ -279,69 +252,36 @@ int main(int argc, char* argv[])
 
 	printf("PDP-8 Disk Server for OS/8, v1.6\n");
 
-	if (!use_disk1)
+	// We must have a system disk.
+	if(!disks[0].in_use)
 	{
 		printf("no system disk (disk1) specified\n");
 		printf(usage, argv[0]);
 		exit(1);
 	}
-	else
+
+	// Open each disk.
+	for(int i = DISK_NUM_MIN; i < DISK_COUNT; i++)
 	{
-		disk1 = fopen(filename_disk1, "r+");
-		if (disk1 == NULL)
+		// noop if not in use.
+		if(!disks[i].in_use)
+			continue;
+
+		curr_disk = &disks[i];
+		curr_disk->fp = fopen(filename_disks[i], "r+");
+		if (curr_disk->fp == NULL)
 		{
-			fprintf(stderr, "On file %s ", filename_disk1);
+			fprintf(stderr, "On file %s ", filename_disks[i]);
 			perror("open failed");
 			exit(1);
 		}
-		printf("Using first  disk %s with read %s and write %s\n", filename_disk1, 
-			(read_protect1 ? MAKE_RED "disabled" RESET_COLOR : MAKE_GREEN "enabled" RESET_COLOR), 
-			(write_protect1 ? MAKE_RED "disabled" RESET_COLOR : MAKE_GREEN "enabled" RESET_COLOR));
-	}
-	
-	if (use_disk2)
-	{
-		disk2 = fopen(filename_disk2, "r+");
-		if (disk2 == NULL)
-		{
-			fprintf(stderr, "On file %s ", filename_disk2);
-			perror("open failed");
-			exit(1);
-		}
-		printf("Using second disk %s with read %s and write %s\n", filename_disk2, 
-			(read_protect2 ? MAKE_RED "disabled" RESET_COLOR : MAKE_GREEN "enabled" RESET_COLOR), 
-			(write_protect2 ? MAKE_RED "disabled" RESET_COLOR : MAKE_GREEN "enabled" RESET_COLOR));
+		printf("Using %6s disk %s with read %s and write %s\n", disk_num_strings[i], filename_disks[i],
+		       (curr_disk->read_protect ? MAKE_RED "disabled" RESET_COLOR : MAKE_GREEN "enabled" RESET_COLOR),
+		       (curr_disk->write_protect ? MAKE_RED "disabled" RESET_COLOR : MAKE_GREEN "enabled" RESET_COLOR));
 	}
 
-	if (use_disk3)
-	{
-		disk3 = fopen(filename_disk3, "r+");
-		if (disk3 == NULL)
-		{
-			fprintf(stderr, "On file %s ", filename_disk3);
-			perror("open failed");
-			exit(1);
-		}
-		printf("Using third  disk %s with read %s and write %s\n", filename_disk3, 
-			(read_protect3 ? MAKE_RED "disabled" RESET_COLOR : MAKE_GREEN "enabled" RESET_COLOR), 
-			(write_protect3 ? MAKE_RED "disabled" RESET_COLOR : MAKE_GREEN "enabled" RESET_COLOR));
-	}
-
-	if (use_disk4)
-	{
-		disk4 = fopen(filename_disk4, "r+");
-		if (disk4 == NULL)
-		{
-			fprintf(stderr, "On file %s ", filename_disk4);
-			perror("open failed");
-			exit(1);
-		}
-		printf("Using fourth disk %s with read %s and write %s\n", filename_disk4, 
-			(read_protect4 ? MAKE_RED "disabled" RESET_COLOR : MAKE_GREEN "enabled" RESET_COLOR), 
-			(write_protect4 ? MAKE_RED "disabled" RESET_COLOR : MAKE_GREEN "enabled" RESET_COLOR));
-	}
-
-	if (send_btldr)
+	FILE* btldr = NULL;
+	if (filename_btldr)
 	{
 		btldr = fopen(filename_btldr, "r");
 		if (btldr == NULL)
@@ -352,6 +292,9 @@ int main(int argc, char* argv[])
 		}
 	}
 	
+	long baud;
+	int two_stop;
+	char serial_dev[256];
 	setup_config(&baud,&two_stop,serial_dev);
 	
 	printf("Using serial port %s at %s with %s\n", 
@@ -360,7 +303,7 @@ int main(int argc, char* argv[])
 	baud = baud_lookup[baud].baud_val;
 	fd = init_comm(serial_dev,baud,two_stop);
 
-	if (send_btldr)
+	if (btldr)
 	{
 		printf("Sending bootloader...\n");
 		while (!feof(btldr))
@@ -376,123 +319,8 @@ int main(int argc, char* argv[])
 		printf(MAKE_GREEN "Bootloader sent\n" RESET_COLOR);
 	}
 
-
-void
-HELPBoot()
-{
-	// If BOOT1 is toggled in and started,
-	// BOOT2 is sent in HELP loader format.
-	int boot2[] = {
-//		00000, // Must be 0, not sent
-		00000, // Must have 01000 clear
-		00000, 05032,
-		07032, 07012, 01003, 03036,
-		04020, 03002, 04020, 03013,
-		05010, 00000, 00000, 00000,
-		00000, 04032, 07006, 07006,
-		07006, 03000, 04032, 01000,
-		03030,
-		05004-1, // Decrement because of ISZ
-		00000,   // Send NUL to get to JMP
-	};
-	// BOOT3 is then sent in BOOT2 loader format, followed
-	// by the important parts of block 0 in BOOT3 format.
-	int boot3[] = {
-		05420, 00000, 03402,	// Actually the required patch
-		00041, 04020,		// BOOT3 proper
-		00042, 03002,
-		00043, 04020,
-		00044, 03001,
-		00045, 04020,
-		00046, 03047,
-		00047, 00000,
-		00050, 04020,
-		00051, 03402,
-		00052, 02002,
-		00053, 07000,
-		00054, 02001,
-		00055, 05050,
-		00056, 05041,
-		00014, 05041,		// Kludge to start BOOT3
-	};
-	int i;
-
-	// This cooperates with a bootloader based on
-	// the HELP loarder.
-	printf("Booting...\n");
-	if (boot2[0] & 04) {
-		fprintf(stderr, MAKE_RED "Illegal initial word\n" RESET_COLOR);
-		return;
-	}
-	for (i = 0; i < sizeof(boot2)/sizeof(*boot2); i++) {
-		unsigned int intval;
-		unsigned char byteval;
-		int link;
-
-		if (boot2[i] & 0740) {
-			fprintf(stderr, MAKE_RED "Illegal bit set in %04o at %04o\n" RESET_COLOR,
-					boot2[i], i);
-			return;
-		}
-		link = 0;
-		if (i+1 < sizeof(boot2)/sizeof(*boot2))
-			link = boot2[i+1] & 01000;
-		intval = (link<<3) | boot2[i];
-		byteval = (intval<<3) | (intval >> 10);
-//		fprintf(stderr, "%03o %05o\n", byteval, intval);
-		if (transmit_buf(&byteval, 1))
-			fprintf(stderr, MAKE_RED "Error: failed to send byte!\n" RESET_COLOR);
-	}
-	for (i = 0; i < sizeof(boot3)/sizeof(*boot3); i++) {
-//		fprintf(stderr, "%03o\n%03o\n", boot3[i]>>6, boot3[i]&077);
-		disk_buf[0] = boot3[i] >> 6;
-		disk_buf[1] = boot3[i] & 077;
-		if (transmit_buf(disk_buf, 2))
-			fprintf(stderr, MAKE_RED "Warning: failed to send word!\n" RESET_COLOR);
-	}
-	if (!read_from_file(disk1, 0, disk_buf, BLOCK_SIZE * BYTES_PER_WORD))
-	{
-		djg_to_pdp(disk_buf, converted_disk_buf, BLOCK_SIZE);
-		// converted_disk_buf is sent as two
-		// blocks in BOOT3 format.
-		// Prepend the field 1 stuff with
-		// address, wc, and CDF 1.
-		// Address
-		converted_disk_buf[044*2+0] = 076;
-		converted_disk_buf[044*2+1] = 047;
-		// WC
-		converted_disk_buf[045*2+0] = 076;
-		converted_disk_buf[045*2+1] = 047;
-		// Field 1
-		converted_disk_buf[046*2+0] = 062;
-		converted_disk_buf[046*2+1] = 011;
-//BUGBUG: THIS ISN'T WORKING YET!!
-		if (!transmit_buf(converted_disk_buf+044*BYTES_PER_WORD, 0131*BYTES_PER_WORD+6))
-		{
-			converted_disk_buf[0175*2+0] = 076; // Address
-			converted_disk_buf[0175*2+1] = 000;
-			converted_disk_buf[0176*2+0] = 076; // WC
-			converted_disk_buf[0176*2+1] = 000;
-			converted_disk_buf[0177*2+0] = 062; // Field 1
-			converted_disk_buf[0177*2+1] = 001;
-			if (!transmit_buf(converted_disk_buf+0175*BYTES_PER_WORD, 0200*BYTES_PER_WORD+6))
-			{
-				converted_disk_buf[0*2+0] = 076; // Address
-				converted_disk_buf[0*2+1] = 005;
-				converted_disk_buf[1*2+0] = 076; // WC
-				converted_disk_buf[1*2+1] = 005;
-				converted_disk_buf[2*2+0] = 054; // Field 1
-				converted_disk_buf[2*2+1] = 002;
-				if (!transmit_buf(converted_disk_buf, 6))
-					printf(MAKE_GREEN "Done sending OS/8 bootstrap\n" RESET_COLOR);
-				else
-					fprintf(stderr, MAKE_RED "Warning: failed to start OS/8!\n" RESET_COLOR);
-			} else
-				fprintf(stderr, MAKE_RED "Warning: failed to send driver content!\n" RESET_COLOR);
-		} else
-			fprintf(stderr, MAKE_RED "Warning: failed to send block 0!\n" RESET_COLOR);
-	} else
-		fprintf(stderr, MAKE_RED "Warning: failed to read block 0!\n" RESET_COLOR);
+	// Start command loop
+	command_loop();
 }
 
 /*
@@ -506,7 +334,8 @@ HELPBoot()
 // Q	- stop operations and shut down the server
 //	- anything else is a (non-fatal) error
 */
-	
+void command_loop()
+{
 	for (;;)
 	{			
 		receive_buf(buf, 1); //wait for command
@@ -516,23 +345,7 @@ HELPBoot()
 				HELPBoot();
 				break;
 			case '@':
-				printf("Booting...\n");
-				if (!read_from_file(disk1, 0, disk_buf, BLOCK_SIZE * BYTES_PER_WORD))
-				{
-					djg_to_pdp(disk_buf, converted_disk_buf, BLOCK_SIZE);
-					if (!transmit_buf(converted_disk_buf, BLOCK_SIZE * BYTES_PER_WORD))
-					{
-						disk_buf[0] = 0200; //trailer
-						if (!transmit_buf(disk_buf, 1))
-							printf(MAKE_GREEN "Done sending block 0\n" RESET_COLOR);
-						else
-							fprintf(stderr, MAKE_RED "Warning: failed to send trailer!\n" RESET_COLOR);
-					}
-					else
-						fprintf(stderr, MAKE_RED "Warning: failed to send block 0!\n" RESET_COLOR);
-				}
-				else
-					fprintf(stderr, MAKE_RED "Warning: failed to read block 0!\n" RESET_COLOR);
+				process_send_boot_sector();
 				break;
 			case 'A':
 			case 'B':
@@ -570,96 +383,32 @@ HELPBoot()
 				}
 				else
 				{
-					i = 0;
 					send_word(acknowledgment);		
 						
 					if (direction == WRITE) //********** WRITE ************//
-					{
-						acknowledgment = ACK_DONE;
-					
-						receive_buf(disk_buf, num_bytes); //get data to write
-					
-						if ((c = ser_read(fd, (char *) buf, sizeof(buf))) < 0)
-						{
-							perror("Serial read failure");
-							exit(1);
-						}
-						else if (c != 0)
-						{
-							fprintf(stderr, MAKE_RED "Warning: detected bytes after write!\n" RESET_COLOR);
-							acknowledgment = NACK | 8;
-						}
-					
-						if (half_block)
-						{
-							for (j = num_bytes; j < PAGE_SIZE * BYTES_PER_WORD; j++)
-								disk_buf[j] = 0;
-							total_num_words += PAGE_SIZE;
-						}
-
-						send_word(acknowledgment);
-#ifdef REALLY_DEBUG
-						if (!(acknowledgment & NACK))
-							printf("Sent done acknowledgment\n");
-						else
-							printf("Received too many words, sent NACK\n");
-#endif
-						if (!(acknowledgment & NACK))
-						{
-							pdp_to_djg(disk_buf, converted_disk_buf, total_num_words);
-							write_to_file(selected_disk_fp, (start_block + block_offset) * BLOCK_SIZE * BYTES_PER_WORD, 
-								converted_disk_buf, total_num_words * BYTES_PER_WORD);
-							printf(MAKE_GREEN "Successfully completed write\n" RESET_COLOR);
-						}
-						else
-							fprintf(stderr, MAKE_RED "Warning: failed to complete write!\n" RESET_COLOR);
-					}
+						process_write();
 					else //********** READ ************//
-					{
-						acknowledgment = ACK_DONE;
-						read_from_file(selected_disk_fp, (start_block + block_offset) * BLOCK_SIZE * BYTES_PER_WORD,
-							disk_buf, num_bytes);
-						djg_to_pdp(disk_buf, converted_disk_buf, total_num_words);
-						transmit_buf(converted_disk_buf, num_bytes);
-						if ((c = ser_read(fd, (char *) buf, sizeof(buf))) < 0)
-						{
-							perror("Serial read failure");
-							exit(1);
-						}
-						else if (c != 0)
-						{
-							fprintf(stderr, MAKE_RED "Warning: detected bytes during read!\n" RESET_COLOR);
-							acknowledgment = NACK | 8;
-						}
-					
-						send_word(acknowledgment);
-#ifdef REALLY_DEBUG
-						if (!(acknowledgment & NACK))
-							printf("Sent done acknowledgment\n");
-						else
-							printf("Received words during read, sent NACK\n");
-#endif
-						if (!(acknowledgment & NACK))
-							printf(MAKE_GREEN "Successfully completed read\n" RESET_COLOR);
-						else
-							fprintf(stderr, MAKE_RED "Warning: failed to complete read!\n" RESET_COLOR);
-					}
+						process_read();
 				}
 				break;
 			case 'Q': //quit server
 				printf(MAKE_YELLOW "Received quit signal, server quitting\n" RESET_COLOR);
-				fclose(disk1);
-				fclose(disk2);
-				fclose(disk3);
-				fclose(disk4);
-				system("sudo shutdown -h now");
-				exit(0);
+				cleanup_and_exit(1); // Exit with shutdown.
 			default:
 				fprintf(stderr, MAKE_RED "Received unknown command - ignored - character %04o\n" 
 					RESET_COLOR, buf[0]);
 				break;
 		}
 	}
+}
+
+void cleanup_and_exit(int poweroff) {
+	// Close files and exit.
+	for(int i = DISK_NUM_MIN; i < DISK_COUNT; i++)
+		fclose(disks[i].fp);
+	if(poweroff) // optional shutdown
+		system("sudo shutdown -h now");
+	exit(0);
 }
 
 void int_handler(int sig)
@@ -669,17 +418,7 @@ void int_handler(int sig)
 	printf("Really quit? [y/N] ");
 	c = getchar();
 	if (c == 'y' || c == 'Y')
-	{
-		if (disk1)
-			fclose(disk1);
-		if (disk2)
-			fclose(disk2);
-		if (disk3)
-			fclose(disk3);
-		if (disk4)
-			fclose(disk4);
-		exit(0);
-	}
+		cleanup_and_exit(0); // Exit without shutdown.
 	else
 		signal(SIGINT, int_handler);
 	getchar();
@@ -699,98 +438,36 @@ int initialize_xfr()
 	//if error, just send ack
 
 	//XXX get starting address of buffer
-	int current_word;
+	int current_word = 0;
 	int retval = 0;
-	i = 0;
-	j = 0;
+	int selected_disk;
+	int selected_side;
+	int field;
+	int cdf_instr;
+	int num_pages;
+	int buffer_addr;
 
-	if (buf[0] == 'B' || buf[0] == 'D' || buf[0] == 'F' || buf[0] == 'H')
-	{
-		block_offset = NUMBER_OF_BLOCKS;
-		selected_side = 1;
-	}
-	else
-	{
-		block_offset = 0;
-		selected_side = 0;
-	}
+	// Determine disk number by converting to an index then dividing by 2.
+	selected_disk = (buf[0] - 'A') / 2;
+	selected_disk_state = &disks[selected_disk];
 
-	if (buf[0] == 'A' || buf[0] == 'B')
+	// B, D, ... ascii codes are even, while A, C, ... are odd.
+	// So we can just check the least significant bit to determine side.
+	selected_side = ~buf[0] & 1;
+	block_offset = NUMBER_OF_BLOCKS * selected_side;
+
+	// This disk must be available.
+	if(!selected_disk_state->in_use)
 	{
-		if (!use_disk1)
-		{
-			fprintf(stderr, MAKE_RED "Warning: no first disk!\n" RESET_COLOR);
-			acknowledgment = NACK;
-			retval = -1;
-		}
-		else
-		{
-			selected_disk_fp = disk1;
-			selected_disk = 1;
-		}
-	}
-	else if (buf[0] == 'C' || buf[0] == 'D')
-	{
-		if (!use_disk2)
-		{
-			fprintf(stderr, MAKE_RED "Warning: no second disk!\n" RESET_COLOR);
-			acknowledgment = NACK;
-			selected_disk = 2;
-			retval = -1;
-		}
-		else
-		{
-			selected_disk_fp = disk2;
-			selected_disk = 2;
-		}
-	}
-	else if (buf[0] == 'E' || buf[0] == 'F')
-	{
-		if (!use_disk3)
-		{
-			fprintf(stderr, MAKE_RED "Warning: no third disk!\n" RESET_COLOR);
-			acknowledgment = NACK;
-			selected_disk = 3;
-			retval = -1;
-		}
-		else
-		{
-			selected_disk_fp = disk3;
-			selected_disk = 4;
-			selected_disk = 3;
-		}
-	}
-	else if (buf[0] == 'G' || buf[0] == 'H')
-	{
-		if (!use_disk4)
-		{
-			fprintf(stderr, MAKE_RED "Warning: no fourth disk!\n" RESET_COLOR);
-			acknowledgment = NACK;
-			retval = -1;
-		}
-		else
-		{
-			selected_disk_fp = disk4;
-			selected_disk = 4;
-		}
-	}
-	else if (buf[0] =='Q')
-	{
-		system("sudo shutdown -h now");
-		retval = -1;
-		}
-	else
-	{
-		fprintf(stderr, MAKE_RED "Warning: handler sent bad character!\n" RESET_COLOR);
+		fprintf(stderr, MAKE_RED "Warning: no %s disk!\n" RESET_COLOR, disk_num_strings[selected_disk - 1]);
 		acknowledgment = NACK;
-		return -1;
+		retval = -1;
 	}
 
-	receive_buf(buf, 6); //get three words
-	
-	c = 0;
-	current_word = decode_word(buf, 0);
-	
+	receive_buf(buf, 6); //get three words;
+
+	current_word = decode_word(buf, 0); // function word
+
 	if (current_word & 07)
 	{
 #ifdef DEBUG
@@ -824,42 +501,30 @@ int initialize_xfr()
 	start_block = decode_word(buf, 2);
 	
 #ifdef DEBUG
-	//printf("Disk:     %s\n", (selected_disk ? "secondary" : "first"));
-	//printf("Side:     %d\n", selected_side);
+	printf("Disk:     %s\n", disk_num_strings[selected_disk]);
+	printf("Side:     %d\n", selected_side);
 	printf("Function: %04o\n", current_word);
 	printf("Buffer:   %04o\n", buffer_addr);
 	printf("Block:    %04o\n", start_block);
 #endif
 
-	if ((selected_disk == 1) || (selected_disk == 2))
-	{
-		printf("Request to %s %d page%s %s side %d on %s disk\n", (direction == WRITE ? "write" : "read"),
-		num_pages, (num_pages == 1 ? "" : "s"), (direction == WRITE ? "to" : "from"),
-		(block_offset ? 1 : 0), (selected_disk-1 ? "second" : "first"));
-	}
-	else
-	{
-		printf("Request to %s %d page%s %s side %d on %s disk\n", (direction == WRITE ? "write" : "read"),
-		num_pages, (num_pages == 1 ? "" : "s"), (direction == WRITE ? "to" : "from"),
-		(block_offset ? 1 : 0), (selected_disk-1 ? "fourth" : "third"));
-	}
+	printf("Request to %s %d page%s %s side %d on %s disk\n", (direction == WRITE ? "write" : "read"),
+	       num_pages, (num_pages == 1 ? "" : "s"), (direction == WRITE ? "to" : "from"),
+	       selected_side, disk_num_strings[selected_disk]);
+
 	printf("Buffer address %05o, starting block %05o\n", 
 		(field << 12) | buffer_addr, start_block);
 
-	if  ((direction == WRITE && selected_disk == 1 && write_protect1 == 1) ||
-		(direction == WRITE && selected_disk == 2 && write_protect2 == 1) ||
-		(direction == WRITE && selected_disk == 3 && write_protect3 == 1) ||
-		(direction == WRITE && selected_disk == 4 && write_protect4 == 1))
+	// Writing with write protect not allowed.
+	if(direction == WRITE && selected_disk_state->write_protect)
 	{
 		fprintf(stderr, MAKE_RED "Warning: write command and selected disk is write-protected!\n" RESET_COLOR);
 		acknowledgment = NACK | 16;
 		retval = -1;
 	}
-	
-	if  ((direction == READ && selected_disk == 1 && read_protect1 == 1) ||
-		(direction == READ && selected_disk == 2 && read_protect2 == 1) ||
-		(direction == READ && selected_disk == 3 && read_protect3 == 1) ||
-		(direction == READ && selected_disk == 4 && read_protect4 == 1))
+
+	// Reading with read protect not allowed.
+	if(direction == READ && selected_disk_state->read_protect)
 	{
 		fprintf(stderr, MAKE_RED "Warning: read command and selected disk is read-protected!\n" RESET_COLOR);
 		acknowledgment = NACK | 16;
@@ -895,6 +560,219 @@ int initialize_xfr()
 	return retval;
 }
 
+void process_send_boot_sector()
+{
+	printf("Booting...\n");
+	if (!read_from_file(disks[0].fp, 0, disk_buf, BLOCK_SIZE * BYTES_PER_WORD))
+	{
+		djg_to_pdp(disk_buf, converted_disk_buf, BLOCK_SIZE);
+		if (!transmit_buf(converted_disk_buf, BLOCK_SIZE * BYTES_PER_WORD))
+		{
+			disk_buf[0] = 0200; //trailer
+			if (!transmit_buf(disk_buf, 1))
+				printf(MAKE_GREEN "Done sending block 0\n" RESET_COLOR);
+			else
+				fprintf(stderr, MAKE_RED "Warning: failed to send trailer!\n" RESET_COLOR);
+		}
+		else
+			fprintf(stderr, MAKE_RED "Warning: failed to send block 0!\n" RESET_COLOR);
+	}
+	else
+		fprintf(stderr, MAKE_RED "Warning: failed to read block 0!\n" RESET_COLOR);
+}
+
+void process_read()
+{
+	acknowledgment = ACK_DONE;
+	read_from_file(selected_disk_state->fp, (start_block + block_offset) * BLOCK_SIZE * BYTES_PER_WORD,
+		       disk_buf, num_bytes);
+	djg_to_pdp(disk_buf, converted_disk_buf, total_num_words);
+	transmit_buf(converted_disk_buf, num_bytes);
+
+	int c = 0;
+	if ((c = ser_read(fd, (char *) buf, sizeof(buf))) < 0)
+	{
+		perror("Serial read failure");
+		exit(1);
+	}
+	else if (c != 0)
+	{
+		fprintf(stderr, MAKE_RED "Warning: detected bytes during read!\n" RESET_COLOR);
+		acknowledgment = NACK | 8;
+	}
+
+	send_word(acknowledgment);
+#ifdef REALLY_DEBUG
+	if (!(acknowledgment & NACK))
+		printf("Sent done acknowledgment\n");
+	else
+		printf("Received words during read, sent NACK\n");
+#endif
+	if (!(acknowledgment & NACK))
+		printf(MAKE_GREEN "Successfully completed read\n" RESET_COLOR);
+	else
+		fprintf(stderr, MAKE_RED "Warning: failed to complete read!\n" RESET_COLOR);
+}
+
+void process_write()
+{
+	acknowledgment = ACK_DONE;
+
+	receive_buf(disk_buf, num_bytes); //get data to write
+
+	int c;
+	if ((c = ser_read(fd, (char *) buf, sizeof(buf))) < 0)
+	{
+		perror("Serial read failure");
+		exit(1);
+	}
+	else if (c != 0)
+	{
+		fprintf(stderr, MAKE_RED "Warning: detected bytes after write!\n" RESET_COLOR);
+		acknowledgment = NACK | 8;
+	}
+
+	if (half_block)
+	{
+		for (int j = num_bytes; j < PAGE_SIZE * BYTES_PER_WORD; j++)
+			disk_buf[j] = 0;
+		total_num_words += PAGE_SIZE;
+	}
+
+	send_word(acknowledgment);
+#ifdef REALLY_DEBUG
+	if (!(acknowledgment & NACK))
+		printf("Sent done acknowledgment\n");
+	else
+		printf("Received too many words, sent NACK\n");
+#endif
+	if (!(acknowledgment & NACK))
+	{
+		pdp_to_djg(disk_buf, converted_disk_buf, total_num_words);
+		write_to_file(selected_disk_state->fp, (start_block + block_offset) * BLOCK_SIZE * BYTES_PER_WORD,
+			      converted_disk_buf, total_num_words * BYTES_PER_WORD);
+		printf(MAKE_GREEN "Successfully completed write\n" RESET_COLOR);
+	}
+	else
+		fprintf(stderr, MAKE_RED "Warning: failed to complete write!\n" RESET_COLOR);
+}
+
+void HELPBoot()
+{
+	// If BOOT1 is toggled in and started,
+	// BOOT2 is sent in HELP loader format.
+	int boot2[] = {
+		//		00000, // Must be 0, not sent
+		00000, // Must have 01000 clear
+		00000, 05032,
+		07032, 07012, 01003, 03036,
+		04020, 03002, 04020, 03013,
+		05010, 00000, 00000, 00000,
+		00000, 04032, 07006, 07006,
+		07006, 03000, 04032, 01000,
+		03030,
+		05004-1, // Decrement because of ISZ
+		00000,   // Send NUL to get to JMP
+	};
+	// BOOT3 is then sent in BOOT2 loader format, followed
+	// by the important parts of block 0 in BOOT3 format.
+	int boot3[] = {
+		05420, 00000, 03402,	// Actually the required patch
+		00041, 04020,		// BOOT3 proper
+		00042, 03002,
+		00043, 04020,
+		00044, 03001,
+		00045, 04020,
+		00046, 03047,
+		00047, 00000,
+		00050, 04020,
+		00051, 03402,
+		00052, 02002,
+		00053, 07000,
+		00054, 02001,
+		00055, 05050,
+		00056, 05041,
+		00014, 05041,		// Kludge to start BOOT3
+	};
+
+	// This cooperates with a bootloader based on
+	// the HELP loarder.
+	printf("Booting...\n");
+	if (boot2[0] & 04) {
+		fprintf(stderr, MAKE_RED "Illegal initial word\n" RESET_COLOR);
+		return;
+	}
+	for (int i = 0; i < sizeof(boot2)/sizeof(*boot2); i++) {
+		unsigned int intval;
+		unsigned char byteval;
+		int link;
+
+		if (boot2[i] & 0740) {
+			fprintf(stderr, MAKE_RED "Illegal bit set in %04o at %04o\n" RESET_COLOR,
+				boot2[i], i);
+			return;
+		}
+		link = 0;
+		if (i+1 < sizeof(boot2)/sizeof(*boot2))
+			link = boot2[i+1] & 01000;
+		intval = (link<<3) | boot2[i];
+		byteval = (intval<<3) | (intval >> 10);
+		//		fprintf(stderr, "%03o %05o\n", byteval, intval);
+		if (transmit_buf(&byteval, 1))
+			fprintf(stderr, MAKE_RED "Error: failed to send byte!\n" RESET_COLOR);
+	}
+	for (int i = 0; i < sizeof(boot3)/sizeof(*boot3); i++) {
+		//		fprintf(stderr, "%03o\n%03o\n", boot3[i]>>6, boot3[i]&077);
+		disk_buf[0] = boot3[i] >> 6;
+		disk_buf[1] = boot3[i] & 077;
+		if (transmit_buf(disk_buf, 2))
+			fprintf(stderr, MAKE_RED "Warning: failed to send word!\n" RESET_COLOR);
+	}
+	if (!read_from_file(disks[0].fp, 0, disk_buf, BLOCK_SIZE * BYTES_PER_WORD))
+	{
+		djg_to_pdp(disk_buf, converted_disk_buf, BLOCK_SIZE);
+		// converted_disk_buf is sent as two
+		// blocks in BOOT3 format.
+		// Prepend the field 1 stuff with
+		// address, wc, and CDF 1.
+		// Address
+		converted_disk_buf[044*2+0] = 076;
+		converted_disk_buf[044*2+1] = 047;
+		// WC
+		converted_disk_buf[045*2+0] = 076;
+		converted_disk_buf[045*2+1] = 047;
+		// Field 1
+		converted_disk_buf[046*2+0] = 062;
+		converted_disk_buf[046*2+1] = 011;
+		//BUGBUG: THIS ISN'T WORKING YET!!
+		if (!transmit_buf(converted_disk_buf+044*BYTES_PER_WORD, 0131*BYTES_PER_WORD+6))
+		{
+			converted_disk_buf[0175*2+0] = 076; // Address
+			converted_disk_buf[0175*2+1] = 000;
+			converted_disk_buf[0176*2+0] = 076; // WC
+			converted_disk_buf[0176*2+1] = 000;
+			converted_disk_buf[0177*2+0] = 062; // Field 1
+			converted_disk_buf[0177*2+1] = 001;
+			if (!transmit_buf(converted_disk_buf+0175*BYTES_PER_WORD, 0200*BYTES_PER_WORD+6))
+			{
+				converted_disk_buf[0*2+0] = 076; // Address
+				converted_disk_buf[0*2+1] = 005;
+				converted_disk_buf[1*2+0] = 076; // WC
+				converted_disk_buf[1*2+1] = 005;
+				converted_disk_buf[2*2+0] = 054; // Field 1
+				converted_disk_buf[2*2+1] = 002;
+				if (!transmit_buf(converted_disk_buf, 6))
+					printf(MAKE_GREEN "Done sending OS/8 bootstrap\n" RESET_COLOR);
+				else
+					fprintf(stderr, MAKE_RED "Warning: failed to start OS/8!\n" RESET_COLOR);
+			} else
+				fprintf(stderr, MAKE_RED "Warning: failed to send driver content!\n" RESET_COLOR);
+		} else
+			fprintf(stderr, MAKE_RED "Warning: failed to send block 0!\n" RESET_COLOR);
+	} else
+		fprintf(stderr, MAKE_RED "Warning: failed to read block 0!\n" RESET_COLOR);
+}
+
 int decode_word(char* buf, int pos)
 {
 	return (((buf[(2 * pos) + 1] & 077) << 6) | (buf[2 * pos] & 077));
@@ -908,8 +786,7 @@ int decode_word(char* buf, int pos)
 
 void djg_to_pdp(char* buf_in, char* buf_out, int word_count) 
 {
-	int i;
-	for (i = 0; i < word_count * 2; i += 2)
+	for (int i = 0; i < word_count * 2; i += 2)
 	{
 		buf_out[i] = ((buf_in[i + 1] << 2) & 074) | ((buf_in[i] >> 6) & 03); //make 00aaabbb
 		buf_out[i + 1] = (buf_in[i] & 077); //make 00cccddd
@@ -918,8 +795,7 @@ void djg_to_pdp(char* buf_in, char* buf_out, int word_count)
 
 void pdp_to_djg(char* buf_in, char* buf_out, int word_count)
 {
-	int i;
-	for (i = 0; i < word_count * 2; i += 2)
+	for (int i = 0; i < word_count * 2; i += 2)
 	{
 		buf_out[i + 1] = (buf_in[i + 1] >> 2) & 0x0F; //00aaabbb -> 0000aaab
 		buf_out[i] = ((buf_in[i + 1] << 6) & 0300) | (buf_in[i] & 077); //00aaabbb 00cccddd -> bbcccddd
@@ -977,6 +853,7 @@ void receive_buf(char* buf, int length)
 
 int read_from_file(FILE* file, int offset, char* buf, int length)
 {
+	int c;
 	fseek(file, offset, SEEK_SET);
 	if ((c = fread(buf, 1, length, file)) < 0)
 	{
@@ -994,6 +871,7 @@ int read_from_file(FILE* file, int offset, char* buf, int length)
 
 int write_to_file(FILE* file, int offset, char* buf, int length)
 {
+	int c;
 	fseek(file, offset, SEEK_SET);
 	if ((c = fwrite(buf, 1, length, file)) < 0)
 	{
