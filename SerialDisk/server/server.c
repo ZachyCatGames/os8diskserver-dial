@@ -447,41 +447,14 @@ int initialize_xfr()
 	int current_word = 0;
 	int retval = 0;
 
-	if (buf[0] == 'B' || buf[0] == 'D' || buf[0] == 'F' || buf[0] == 'H')
-	{
-		block_offset = NUMBER_OF_BLOCKS;
-		selected_side = 1;
-	}
-	else
-	{
-		block_offset = 0;
-		selected_side = 0;
-	}
-
-	switch(buf[0]) {
-		case 'A':
-		case 'B':
-			selected_disk = 1;
-			break;
-		case 'C':
-		case 'D':
-			selected_disk = 2;
-			break;
-		case 'E':
-		case 'F':
-			selected_disk = 3;
-			break;
-		case 'G':
-		case 'H':
-			selected_disk = 4;
-			break;
-		default:
-			// should never happen
-			break;
-	}
-
-	// Get state for selected disk.
+	// Determine disk number by converting to an index then dividing by 2.
+	selected_disk = (buf[0] - 'A') / 2;
 	selected_disk_state = &disks[selected_disk - 1];
+
+	// B, D, ... ascii codes are odd, while A, C, ... are even.
+	// So we can just check the least significant bit to determine side.
+	selected_side = buf[0] & 1;
+	block_offset = NUMBER_OF_BLOCKS * selected_side;
 
 	// This disk must be available.
 	if(!selected_disk_state->in_use)
@@ -491,10 +464,10 @@ int initialize_xfr()
 		retval = -1;
 	}
 
-	receive_buf(buf, 6); //get three words
+	receive_buf(buf, 6); //get three words;
 
-	current_word = decode_word(buf, 0);
-	
+	current_word = decode_word(buf, 0); // function word
+
 	if (current_word & 07)
 	{
 #ifdef DEBUG
