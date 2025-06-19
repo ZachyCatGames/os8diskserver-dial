@@ -414,7 +414,10 @@ void command_loop()
 void cleanup_and_exit(int poweroff) {
 	// Close files and exit.
 	for(int i = DISK_NUM_MIN; i < DISK_COUNT; i++)
-		fclose(disks[i].fp);
+	{
+		if(disks[i].in_use)
+			fclose(disks[i].fp);
+	}
 	if(poweroff) // optional shutdown
 		system("sudo shutdown -h now");
 	exit(0);
