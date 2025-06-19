@@ -455,6 +455,7 @@ int initialize_xfr()
 	//get buffer address (div by 0400)
 	//get starting block number
 	//get block count
+	//send buffer address
 	//... rest remains the same
 
 	//XXX get starting address of buffer
@@ -529,12 +530,17 @@ int initialize_xfr()
 		//DIAL only supports 512 block devices.
 		//We'll treat the bottom 3 bits of the unit number as the sub-disk number.
 		//and use our offset field to add sub-disk offsets.
+		printf("%04o\n", decode_word(buf, 0));
+		printf("%04o\n", decode_word(buf, 1));
+		printf("%04o\n", decode_word(buf, 2));
+		printf("%04o\n", decode_word(buf, 3));
 		block_offset += (current_word & 07) * DIAL_SUB_DISK_BLK_COUNT;
 		current_word = decode_word(buf, 1);
 		buffer_addr = (current_word & 017) * BLOCK_SIZE;
-		field = (current_word & ~017) >> 4;
+		field = (current_word >> 4) & 07;
+		cdf_instr = 06201 | (field << 3);
 		start_block = decode_word(buf, 2);
-		num_pages = decode_word(buf, 3) * 2; // this is 256 word blocks instead of 128 word os8 records
+		num_pages = decode_word(buf, 3) * 2; // this is 256 word blocks instead of 128 word pages/os8 records
 	}
 	
 #ifdef DEBUG
@@ -582,6 +588,8 @@ int initialize_xfr()
 		retval = -1;
 	}
 	
+	if(dial_mode) // send buffer addr in DIAL mode
+		send_word(buffer_addr);
 	send_word(cdf_instr); //send CDF instruction
 	send_word(-(num_pages * PAGE_SIZE) & 07777); //don't update num_pages before sending word count
 
