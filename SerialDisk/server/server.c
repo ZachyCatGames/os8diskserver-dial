@@ -203,7 +203,7 @@ int main(int argc, char* argv[])
 	int disk_num;
 	char* filename_disks[4];
 	char* filename_btldr = NULL;
-	while ((c = getopt(argc, argv, "-1:2:3:4:b:r:w:d:")) != -1)
+	while ((c = getopt(argc, argv, "-1:2:3:4:b:r:w:d")) != -1)
 	{
 		switch (c)
 		{
