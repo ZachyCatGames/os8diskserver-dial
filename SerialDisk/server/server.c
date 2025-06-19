@@ -259,6 +259,8 @@ int main(int argc, char* argv[])
 
 	printf("PDP-8 Disk Server for OS/8, v1.6\n");
 
+	printf("Running %s mode\n", dial_mode ? "DIAL" : "OS/8");
+
 	// We must have a system disk.
 	if(!disks[0].in_use)
 	{
