@@ -393,11 +393,13 @@ void command_loop()
 				else
 				{
 					send_word(acknowledgment);		
-						
-					if (direction == WRITE) //********** WRITE ************//
-						process_write();
-					else //********** READ ************//
-						process_read();
+
+					if(num_bytes != 0) {
+						if (direction == WRITE) //********** WRITE ************//
+							process_write();
+						else //********** READ ************//
+							process_read();
+					}
 				}
 				break;
 			case 'Q': //quit server
@@ -451,8 +453,7 @@ int initialize_xfr()
 	//if error, just send ack
 
 	//for DIAL, some things change:
-	//get unit number + read/write (still bit0 as in os8)
-	//get buffer address (div by 0400)
+	//get buffer address (div by 0400) + read/write (still bit0 as in os8)
 	//get starting block number
 	//get block count
 	//send buffer address
@@ -485,7 +486,7 @@ int initialize_xfr()
 		retval = -1;
 	}
 
-	receive_buf(buf, dial_mode ? 8 : 6); //get three words if os8; four if DIAL
+	receive_buf(buf, 6); //get three words
 
 	current_word = decode_word(buf, 0); // function word
 
@@ -533,14 +534,23 @@ int initialize_xfr()
 		printf("%04o\n", decode_word(buf, 0));
 		printf("%04o\n", decode_word(buf, 1));
 		printf("%04o\n", decode_word(buf, 2));
-		printf("%04o\n", decode_word(buf, 3));
-		block_offset += (current_word & 07) * DIAL_SUB_DISK_BLK_COUNT;
-		current_word = decode_word(buf, 1);
+
 		buffer_addr = (current_word & 017) * BLOCK_SIZE;
 		field = (current_word >> 4) & 07;
+		start_block = decode_word(buf, 1);
 		cdf_instr = 06201 | (field << 3);
-		start_block = decode_word(buf, 2);
-		num_pages = decode_word(buf, 3) * 2; // this is 256 word blocks instead of 128 word pages/os8 records
+		current_word = decode_word(buf, 2);
+		num_pages = current_word * 2; // this is 256 word blocks instead of 128 word pages/os8 records
+
+		// If page count is greater than 40, we only need to send the last 40 pages.
+		if(num_pages > 040)
+		{
+			start_block += (current_word - 020);
+			num_pages -= 040;
+		}
+		// Immediately return done ack if page count is zero.
+		else if(num_pages == 0)
+			acknowledgment = ACK_DONE;
 	}
 	
 #ifdef DEBUG
@@ -587,9 +597,7 @@ int initialize_xfr()
 		acknowledgment = NACK | 4;
 		retval = -1;
 	}
-	
-	if(dial_mode) // send buffer addr in DIAL mode
-		send_word(buffer_addr);
+
 	send_word(cdf_instr); //send CDF instruction
 	send_word(-(num_pages * PAGE_SIZE) & 07777); //don't update num_pages before sending word count
 
