@@ -11,169 +11,175 @@
 0002                  /THIS IS FOR USE WITH THE SERIALDISK
 0003                  /SERVER PROVIDED WITH OS8DISKSERVER
 0004                  /
-0005                  PMODE
-0006                  *6630           /ENTRY
-0007                                  /DIAL HANDLERS START AT
-0010                                  /LOCATION 30
-0011                  /2ND SERIAL RECEIVE INSTRUCTIONS
-0012                  KSF2=6401       /SKIP ON FLAG
-0013                  KCC2=6402       /CLEAR AC & FLAG
-0014                  KRS2=6404       /READ BUF->AC
-0015                  KRB2=6406       /READ BUF->AC & CLR FLAG
-0016                  /
-0017                  /2ND SERIAL SEND INSTRUCTIONS
-0020                  TSF2=6411       /SKIP ON FLAG
-0021                  TCF2=6412       /CLEAR FLAG
-0022                  TPC2=6414       /AC->PRINT BUF
-0023                  TLS2=6416       /AC=>PRINT BUF+CLR FLAG
-0024      6630  0000  SREAD,  0               /READ ENTRY
-0025      6631  5236          JMP CMN         /JUMP TO CMN ENT
-0026      6632  0000  SWRITE, 0
-0027      6633  1232          TAD SWRITE      /CPY WRITE RET
-0030      6634  3230          DCA SREAD       /TO READ RET
-0031                                          /FOR EASY ACCESS
-0032      6635  7330          CLA CLL CML RAR /SET BIT0 WRITE
-0033                  CMN,                    /COMMON ENTRY
-0034      6636  3262          DCA WRFG        /SAVE WRITE FLAG
-0035                  /USE DISK NUM BITS IN UNIT NUM TO SETUP
-0036                  /DISK LETTER FOR SERVER
-0037      6637  1630          TAD I SREAD     /GET UNIT NUM
-0040      6640  7012          RTR;
-0040      6641  7010  RAR             /SHIFT DSK NUM
-0041                                          /INTO LOW BITS
-0042      6642  0300          AND K7          /MASK OFF UPPER
-0043      6643  1307          TAD KBSCMD      /ADD 1ST DISK
-0044                                          /LETTER
-0045                                          /SINCE 1 IS BASE
-0046                                          /WE ADD "A"-1 TO
-0047                                          /TO CONVERT TO
-0050                                          /A DISK LETTER
-0051      6644  4322          JMS SEND        /SEND IT
-0052      6645  2230          ISZ SREAD       /SKIP PAST UNIT
-0053                  /SETUP BUFFER ADDRESS
-0054      6646  1630          TAD I SREAD     /GET ADDR
-0055      6647  7112          CLL RTR;
-0055      6650  7012  RTR;
-0055      6651  7010  RAR     /SHIFT IT
-0056      6652  0213          AND+0213        /OPTIMIZATION
-0057                                          /METAGAME
-0060                                          /GOES HARD
-0061      6653  3232          DCA AADDR       /SAVE ADDR
-0062                  /SEND OTHER ARGS
-0063      6654  1262          TAD WRFG        /INC WF WITH ADR
-0064      6655  4315          JMS SNDARG      /SEND BUF ADDR
-0065      6656  4315          JMS SNDARG      /SEND BLK NUM
-0066      6657  4315          JMS SNDARG      /SEND BLK CNT
-0067                  /RECEIVE VALUES BACK
-0070      6660  4340          JMS RECV2       /RECV CDF INST
-0071      6661  3262          DCA SCDF        /SAVE IT
+0005                  /REVISIONS:
+0006                  /
+0007                  /VERSION: A
+0010                  /DATE: 06-JUN-2025
+0011                  /BY: ZACHARY KIRTZ
+0012                  /INITIAL RELEASE
+0013                  PMODE
+0014                  *6630           /ENTRY
+0015                                  /DIAL HANDLERS START AT
+0016                                  /LOCATION 30
+0017                  /2ND SERIAL RECEIVE INSTRUCTIONS
+0020                  KSF2=6401       /SKIP ON FLAG
+0021                  KCC2=6402       /CLEAR AC & FLAG
+0022                  KRS2=6404       /READ BUF->AC
+0023                  KRB2=6406       /READ BUF->AC & CLR FLAG
+0024                  /
+0025                  /2ND SERIAL SEND INSTRUCTIONS
+0026                  TSF2=6411       /SKIP ON FLAG
+0027                  TCF2=6412       /CLEAR FLAG
+0030                  TPC2=6414       /AC->PRINT BUF
+0031                  TLS2=6416       /AC=>PRINT BUF+CLR FLAG
+0032      6630  0000  SREAD,  0               /READ ENTRY
+0033      6631  5236          JMP CMN         /JUMP TO CMN ENT
+0034      6632  0000  SWRITE, 0
+0035      6633  1232          TAD SWRITE      /CPY WRITE RET
+0036      6634  3230          DCA SREAD       /TO READ RET
+0037                                          /FOR EASY ACCESS
+0040      6635  7330          CLA CLL CML RAR /SET BIT0 WRITE
+0041                  CMN,                    /COMMON ENTRY
+0042      6636  3262          DCA WRFG        /SAVE WRITE FLAG
+0043                  /USE DISK NUM BITS IN UNIT NUM TO SETUP
+0044                  /DISK LETTER FOR SERVER
+0045      6637  1630          TAD I SREAD     /GET UNIT NUM
+0046      6640  7012          RTR;
+0046      6641  7010  RAR             /SHIFT DSK NUM
+0047                                          /INTO LOW BITS
+0050      6642  0300          AND K7          /MASK OFF UPPER
+0051      6643  1307          TAD KBSCMD      /ADD 1ST DISK
+0052                                          /LETTER
+0053                                          /SINCE 1 IS BASE
+0054                                          /WE ADD "A"-1 TO
+0055                                          /TO CONVERT TO
+0056                                          /A DISK LETTER
+0057      6644  4322          JMS SEND        /SEND IT
+0060      6645  2230          ISZ SREAD       /SKIP PAST UNIT
+0061                  /SETUP BUFFER ADDRESS
+0062      6646  1630          TAD I SREAD     /GET ADDR
+0063      6647  7112          CLL RTR;
+0063      6650  7012  RTR;
+0063      6651  7010  RAR     /SHIFT IT
+0064      6652  0213          AND+0213        /OPTIMIZATION
+0065                                          /METAGAME
+0066                                          /GOES HARD
+0067      6653  3232          DCA AADDR       /SAVE ADDR
+0070                  /SEND OTHER ARGS
+0071      6654  1262          TAD WRFG        /INC WF WITH ADR
 -
 
 
 
-0072      6662  7402  SCDF,   HLT             /CDF AND TMP
-0073      6663  4340          JMS RECV2       /RECV NEG WD CNT
-0074      6664  3315          DCA WDCNT
-0075                  /RECEIVE ACKNOWLEDGEMENT
-0076      6665  4340  SACK,   JMS RECV2       /RECV ACK/NACK
-0077      6666  7450          SNA             /DONE?
-0100      6667  5314          JMP SDONE       /YES? RETURN
-0101      6670  7500          SMA             /NOT R OR W?
-0102      6671  5313          JMP SERR        /YES? ERROR
-0103      6672  7110          CLL RAR         /W BIT IN LINK
-0104      6673  7630          CLA SZL         /W BIT SET?
-0105      6674  5304          JMP SWT         /YES? WRITE
-0106                                          /NO? READ
-0107                  /READ ROUTINE
-0110      6675  4340  SRD,    JMS RECV2       /RECV WORD
-0111      6676  3632          DCA I AADDR     /SAVE IT
-0112      6677  2232          ISZ AADDR       /INC ADDR
-0113      6700  0007  K7,     7               /7 + GUARD WORD
-0114                                          /HARMLESS AND IF
-0115                                          /EXECUTED
-0116      6701  2315          ISZ WDCNT       /INC COUNTER
-0117      6702  5275          JMP SRD         /LOOP BACK
-0120      6703  5265          JMP SACK        /DONE? GET ACK
-0121                  /WRITE ROUTINE
-0122      6704  1632  SWT,    TAD I AADDR     /READ WORD
-0123      6705  4330          JMS SEND2       /SEND IT
-0124      6706  2232          ISZ AADDR       /INC ADDR
-0125      6707  0100  KBSCMD, 101-1           /GUARD + BASE
-0126                                          /DISK LETTER-1
-0127                                          /HARMLESS AND IF
-0130                                          /EXECUTED
-0131      6710  2315          ISZ WDCNT       /INC COUNTER
-0132      6711  5304          JMP SWT         /LOOP BACK
-0133      6712  5265          JMP SACK        /DONE? GET ACK
-0134                  /
-0135                  /ERROR EXIT
-0136                  /DIAL DOES NOT HAVE A PROPER ERROR
-0137                  /RETURN, SO WE WILL JUST HALT BEFORE THE
-0140                  /NORMAL RETURN TO SIGNIFY THAT CAN ERROR
-0141                  /HAS OCURRED.
-0142                  /THE USER MAY CONTINUE, AT THEIR OWN
-0143                  /RISK, BY PRESSING CONTINUE.
-0144      6713  7402  SERR,   HLT
-0145                  /
-0146                  /NORMAL EXIT
-0147      6714  5630  SDONE,  JMP I SREAD
-0150                  /
-0151                  /SEND CURRENT READ ARGUMENT AND INC
-0152      6715  0000  SNDARG, 0
-0153      6716  1630          TAD I SREAD
-0154      6717  2230          ISZ SREAD
-0155                          /NOP            /GUARD; UNNEEDE
-0156      6720  4330          JMS SEND2
-0157      6721  5715          JMP I SNDARG
-0160                  /SEND SINGLE 8BIT CHAR
-0161                  /PARAM[AC] CHARACTER
-0162      6722  0000  SEND,   0
-0163      6723  6416          TLS2            /SEND CHAR
-0164      6724  6411          TSF2            /WAIT FOR FINISH
-0165      6725  5324          JMP .-1
-0166      6726  3340          DCA SNDTMP      /SAVE+CLEANUP
-0167      6727  5722          JMP I SEND      /RETURN
-0170                  /
+0072      6655  4315          JMS SNDARG      /SEND BUF ADDR
+0073      6656  4315          JMS SNDARG      /SEND BLK NUM
+0074      6657  4315          JMS SNDARG      /SEND BLK CNT
+0075                  /RECEIVE VALUES BACK
+0076      6660  4340          JMS RECV2       /RECV CDF INST
+0077      6661  3262          DCA SCDF        /SAVE IT
+0100      6662  7402  SCDF,   HLT             /CDF AND TMP
+0101      6663  4340          JMS RECV2       /RECV NEG WD CNT
+0102      6664  3315          DCA WDCNT
+0103                  /RECEIVE ACKNOWLEDGEMENT
+0104      6665  4340  SACK,   JMS RECV2       /RECV ACK/NACK
+0105      6666  7450          SNA             /DONE?
+0106      6667  5314          JMP SDONE       /YES? RETURN
+0107      6670  7500          SMA             /NOT R OR W?
+0110      6671  5313          JMP SERR        /YES? ERROR
+0111      6672  7110          CLL RAR         /W BIT IN LINK
+0112      6673  7630          CLA SZL         /W BIT SET?
+0113      6674  5304          JMP SWT         /YES? WRITE
+0114                                          /NO? READ
+0115                  /READ ROUTINE
+0116      6675  4340  SRD,    JMS RECV2       /RECV WORD
+0117      6676  3632          DCA I AADDR     /SAVE IT
+0120      6677  2232          ISZ AADDR       /INC ADDR
+0121      6700  0007  K7,     7               /7 + GUARD WORD
+0122                                          /HARMLESS AND IF
+0123                                          /EXECUTED
+0124      6701  2315          ISZ WDCNT       /INC COUNTER
+0125      6702  5275          JMP SRD         /LOOP BACK
+0126      6703  5265          JMP SACK        /DONE? GET ACK
+0127                  /WRITE ROUTINE
+0130      6704  1632  SWT,    TAD I AADDR     /READ WORD
+0131      6705  4330          JMS SEND2       /SEND IT
+0132      6706  2232          ISZ AADDR       /INC ADDR
+0133      6707  0100  KBSCMD, 101-1           /GUARD + BASE
+0134                                          /DISK LETTER-1
+0135                                          /HARMLESS AND IF
+0136                                          /EXECUTED
+0137      6710  2315          ISZ WDCNT       /INC COUNTER
+0140      6711  5304          JMP SWT         /LOOP BACK
+0141      6712  5265          JMP SACK        /DONE? GET ACK
+0142                  /
+0143                  /ERROR EXIT
+0144                  /DIAL DOES NOT HAVE A PROPER ERROR
+0145                  /RETURN, SO WE WILL JUST HALT BEFORE THE
+0146                  /NORMAL RETURN TO SIGNIFY THAT CAN ERROR
+0147                  /HAS OCURRED.
+0150                  /THE USER MAY CONTINUE, AT THEIR OWN
+0151                  /RISK, BY PRESSING CONTINUE.
+0152      6713  7402  SERR,   HLT
+0153                  /
+0154                  /NORMAL EXIT
+0155      6714  5630  SDONE,  JMP I SREAD
+0156                  /
+0157                  /SEND CURRENT READ ARGUMENT AND INC
+0160      6715  0000  SNDARG, 0
+0161      6716  1630          TAD I SREAD
+0162      6717  2230          ISZ SREAD
+0163                          /NOP            /GUARD; UNNEEDE
+0164      6720  4330          JMS SEND2
+0165      6721  5715          JMP I SNDARG
+0166                  /SEND SINGLE 8BIT CHAR
+0167                  /PARAM[AC] CHARACTER
+0170      6722  0000  SEND,   0
 -
 
 
 
-0171                  /SEND 12BIT AS TWO 8BIT
-0172                  /PARAM[AC] 12BIT
-0173      6730  0000  SEND2,  0
-0174      6731  4322          JMS SEND        /SEND BOT 8
-0175      6732  1340          TAD SNDTMP      /GET BACK
-0176      6733  7112          CLL RTR         /GET TOP 4
-0177      6734  7012          RTR;
-0177      6735  7012  RTR
-0200      6736  4322          JMS SEND        /SEND THEM
-0201                                          /+ EXTRAS, BUT
-0202                                          /THIS IS FINE
-0203      6737  5730          JMP I SEND2     /RETURN
-0204                  /
-0205                  /RECEIVE SINGLE 12BIT AS TWO 8BIT
-0206                  /RESULT[AC] 12BIT
-0207      6740  0000  RECV2,  0
-0210      6741  6401          KSF2            /GET 1ST 6BIT
-0211      6742  5341          JMP .-1
-0212      6743  6406          KRB2
-0213      6744  7106          CLL RTL         /SHIFT TO UPPER
-0214      6745  7006          RTL;
-0214      6746  7006  RTL
-0215      6747  3322          DCA RCVTMP      /SAVE EM
-0216      6750  6401          KSF2            /GET 2ND 6BIT
-0217      6751  5350          JMP .-1
-0220      6752  6406          KRB2
-0221      6753  1322          TAD RCVTMP      /ADD TOP 6
-0222      6754  5740          JMP I RECV2     /RETURN
-0223                  /
-0224                  /LOCAL VARIABLES
-0225                  WRFG=SCDF       /WRITE FLAG
-0226                                  /REUSE RECV RET
-0227                  SNDTMP=RECV2    /SEND TEMP WORD
-0230                  RCVTMP=SEND     /RECV TEMP WORD
-0231                  WDCNT=SNDARG    /WORD COUNT (NEGATED)
-0232                  AADDR=SWRITE    /ACCESS ADDRESS
+0171      6723  6416          TLS2            /SEND CHAR
+0172      6724  6411          TSF2            /WAIT FOR FINISH
+0173      6725  5324          JMP .-1
+0174      6726  3340          DCA SNDTMP      /SAVE+CLEANUP
+0175      6727  5722          JMP I SEND      /RETURN
+0176                  /
+0177                  /SEND 12BIT AS TWO 8BIT
+0200                  /PARAM[AC] 12BIT
+0201      6730  0000  SEND2,  0
+0202      6731  4322          JMS SEND        /SEND BOT 8
+0203      6732  1340          TAD SNDTMP      /GET BACK
+0204      6733  7112          CLL RTR         /GET TOP 4
+0205      6734  7012          RTR;
+0205      6735  7012  RTR
+0206      6736  4322          JMS SEND        /SEND THEM
+0207                                          /+ EXTRAS, BUT
+0210                                          /THIS IS FINE
+0211      6737  5730          JMP I SEND2     /RETURN
+0212                  /
+0213                  /RECEIVE SINGLE 12BIT AS TWO 8BIT
+0214                  /RESULT[AC] 12BIT
+0215      6740  0000  RECV2,  0
+0216      6741  6401          KSF2            /GET 1ST 6BIT
+0217      6742  5341          JMP .-1
+0220      6743  6406          KRB2
+0221      6744  7106          CLL RTL         /SHIFT TO UPPER
+0222      6745  7006          RTL;
+0222      6746  7006  RTL
+0223      6747  3322          DCA RCVTMP      /SAVE EM
+0224      6750  6401          KSF2            /GET 2ND 6BIT
+0225      6751  5350          JMP .-1
+0226      6752  6406          KRB2
+0227      6753  1322          TAD RCVTMP      /ADD TOP 6
+0230      6754  5740          JMP I RECV2     /RETURN
+0231                  /
+0232                  /LOCAL VARIABLES
+0233                  WRFG=SCDF       /WRITE FLAG
+0234                                  /REUSE RECV RET
+0235                  SNDTMP=RECV2    /SEND TEMP WORD
+0236                  RCVTMP=SEND     /RECV TEMP WORD
+0237                  WDCNT=SNDARG    /WORD COUNT (NEGATED)
+0240                  AADDR=SWRITE    /ACCESS ADDRESS
 
 NO ERRORS
 
@@ -195,16 +201,16 @@ SEND2  6730
 SERR   6713
 SNDARG 6715
 SNDTMP 6740
+-
+
+
+
 SRD    6675
 SREAD  6630
 SWRITE 6632
 SWT    6704
 TCF2   6412
 TLS2   6416
--
-
-
-
 TPC2   6414
 TSF2   6411
 WDCNT  6715
@@ -262,14 +268,7 @@ WRFG   6662
 
 
 
-
-
-
-
-
-
 -
-
 
 
 
