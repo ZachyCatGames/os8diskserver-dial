@@ -116,8 +116,8 @@
 
 #define DIAL_SUB_DISK_BLK_COUNT 0400
 
-#define DEBUG
-#define REALLY_DEBUG
+//#define DEBUG
+//#define REALLY_DEBUG
 
 int terminate = 0;
 
@@ -531,9 +531,10 @@ int initialize_xfr()
 		//DIAL only supports 512 block devices.
 		//We'll treat the bottom 3 bits of the unit number as the sub-disk number.
 		//and use our offset field to add sub-disk offsets.
-		printf("%04o\n", decode_word(buf, 0));
-		printf("%04o\n", decode_word(buf, 1));
-		printf("%04o\n", decode_word(buf, 2));
+
+		//printf("%04o\n", decode_word(buf, 0));
+		//printf("%04o\n", decode_word(buf, 1));
+		//printf("%04o\n", decode_word(buf, 2));
 
 		buffer_addr = (current_word & 017) * BLOCK_SIZE;
 		field = (current_word >> 4) & 07;
