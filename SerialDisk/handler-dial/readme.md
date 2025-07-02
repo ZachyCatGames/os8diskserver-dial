@@ -44,6 +44,7 @@ If the Super Extended Unit Patch(tm) was applied, the following additional units
 * 7050-7055: Serial Disk 3 Half 1(*)
 * 7060-7065: Serial Disk 3 Half 2
 * 7070-7075: Serial Disk 4 Half 1
+
 (*) When using the editor; if accessing these serial disk units through the I/O routines use units 5x, 6x, etc.
 
 These units will be accessible to any software that uses the DIAL-MS `READ` and `WRITE` I/O routines.
@@ -84,7 +85,7 @@ It may be possible to send the installer to DIAL-MS over TTY, but I have not per
 #### Loading Through OS/8
 TODO -- I should probably provide an OS/8 core image.
 
-
+#### Going Through The Installer
 Upon starting the installer, you'll be given the following prompt:
 ```
 SERIAL DISK INSTALLER
