@@ -468,6 +468,7 @@ int initialize_xfr()
 	int cdf_instr;
 	int num_pages;
 	int buffer_addr;
+	int sub_device;
 
 	// Determine disk number by converting to an index then dividing by 2.
 	selected_disk = (buf[0] - 'A') / 2;
@@ -486,9 +487,9 @@ int initialize_xfr()
 		retval = -1;
 	}
 
-	receive_buf(buf, 6); //get three words
+	receive_buf(buf, dial_mode ? 8 : 6); //get three words in os8 mode; four in dial mode
 
-	current_word = decode_word(buf, 0); // function word
+	current_word = decode_word(buf, 0); // function word for os8, unit num for dial
 
 	if (current_word & 07 && !dial_mode) // doesn't apply in DIAL mode
 	{
@@ -498,8 +499,10 @@ int initialize_xfr()
 		if (current_word & 06)
 			fprintf(stderr, MAKE_RED "Warning: unused bits in device code are set!\n" RESET_COLOR);
 	}
-		
+
 	// Do not attempt to over-write failure with success here!
+	// In DIAL, we pack the write flag with the unit number.
+	// NOTE: this means we cannot use unit numbers with bit0 set.
 	if (retval == 0)
 	{
 		if (current_word & 04000)
@@ -527,20 +530,20 @@ int initialize_xfr()
 	}
 	else /* if(dial_mode) */ // DIAL arguments
 	{
-		//In DIAl, we treat each half disk as 6 sub-disks because
-		//DIAL only supports 512 block devices.
-		//We'll treat the bottom 3 bits of the unit number as the sub-disk number.
-		//and use our offset field to add sub-disk offsets.
+		// In DIAl, we treat each half disk as 6 sub-disks because
+		// DIAL only supports 512 block devices.
+		// We'll treat the bottom 3 bits of the unit number as the sub-disk number.
+		// and use our offset field to add sub-disk offsets.
+		// NOTE: we don't guard against writing past the end of a sub-device
+		// DEC didn't originally do this in their handlers, so we aren't either.
 
-		//printf("%04o\n", decode_word(buf, 0));
-		//printf("%04o\n", decode_word(buf, 1));
-		//printf("%04o\n", decode_word(buf, 2));
-
+		sub_device = current_word & 07;
+		current_word = decode_word(buf, 1);
 		buffer_addr = (current_word & 017) * BLOCK_SIZE;
 		field = (current_word >> 4) & 07;
-		start_block = decode_word(buf, 1);
 		cdf_instr = 06201 | (field << 3);
-		current_word = decode_word(buf, 2);
+		start_block = decode_word(buf, 2) + sub_device * DIAL_SUB_DISK_BLK_COUNT;
+		current_word = decode_word(buf, 3);
 		num_pages = current_word * 2; // this is 256 word blocks instead of 128 word pages/os8 records
 
 		// If page count is greater than 40, we only need to send the last 40 pages.
@@ -598,6 +601,10 @@ int initialize_xfr()
 		acknowledgment = NACK | 4;
 		retval = -1;
 	}
+
+	// Send buffer address in DIAL mode.
+	if(dial_mode)
+		send_word(buffer_addr);
 
 	send_word(cdf_instr); //send CDF instruction
 	send_word(-(num_pages * PAGE_SIZE) & 07777); //don't update num_pages before sending word count

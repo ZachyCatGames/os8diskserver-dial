@@ -6,232 +6,1438 @@
 
 
 0000                  *20
-0001                  /SERIALDISK UNIT HANDLER FOR LAP6-DIAL-MS BY ZACHA
-                      RY KIRTZ
-0002                  /THIS IS FOR USE WITH THE SERIALDISK
-0003                  /SERVER PROVIDED WITH OS8DISKSERVER
-0004                  /
-0005                  /REVISIONS:
-0006                  /
-0007                  /VERSION: B
-0010                  /DATE: 7-JUL-2025
-0011                  /BY: ZACHARY KIRTZ
-0012                  /REMOVE UGLY HACK FOR FREE CONSTANT
-0013                  /OUTSIDE OF OUR MEMORY SPACE.
-0014                  /ADD FIX FOR USING SD-AS-SYS.
-0015                  /THIS WAS SUPPOSED TO BE IN VER A. BUT
-0016                  /DIAPPEARED AT SOME POINT.
-0017                  /
-0020                  /VERSION: A
-0021                  /DATE: 06-JUN-2025
-0022                  /BY: ZACHARY KIRTZ
-0023                  /INITIAL RELEASE
-0024                  PMODE
-0025                  *6630           /ENTRY
-0026                                  /DIAL HANDLERS START AT
-0027                                  /LOCATION 30
-0030                  /2ND SERIAL RECEIVE INSTRUCTIONS
-0031                  KSF2=6401       /SKIP ON FLAG
-0032                  KCC2=6402       /CLEAR AC & FLAG
-0033                  KRS2=6404       /READ BUF->AC
-0034                  KRB2=6406       /READ BUF->AC & CLR FLAG
-0035                  /
-0036                  /2ND SERIAL SEND INSTRUCTIONS
-0037                  TSF2=6411       /SKIP ON FLAG
-0040                  TCF2=6412       /CLEAR FLAG
-0041                  TPC2=6414       /AC->PRINT BUF
-0042                  TLS2=6416       /AC=>PRINT BUF+CLR FLAG
-0043      6630  0000  SREAD,  0               /READ ENTRY
-0044      6631  5236          JMP CMN         /JUMP TO CMN ENT
-0045      6632  0000  SWRITE, 0
-0046      6633  1232          TAD SWRITE      /CPY WRITE RET
-0047      6634  3230          DCA SREAD       /TO READ RET
-0050                                          /FOR EASY ACCESS
-0051      6635  7330          CLA CLL CML RAR /SET BIT0 WRITE
-0052                  CMN,                    /COMMON ENTRY
-0053      6636  3264          DCA WRFG        /SAVE WRITE FLAG
-0054                  /USE DISK NUM BITS IN UNIT NUM TO SETUP
-0055                  /DISK LETTER FOR SERVER
-0056      6637  1630          TAD I SREAD     /GET UNIT NUM
-0057      6640  7112          CLL RTR;
-0057      6641  7010  RAR     /SHIFT DSK NUM
-0060                                          /INTO LOW BITS
-0061      6642  0302          AND K7          /MASK OFF UPPER
-0062      6643  7450          SNA             /ADD ONE IF 0
-0063      6644  7001          IAC             /WORKAROUND FOR
-0064                                          /SYS UNIT
-0065      6645  1311          TAD KBSCMD      /ADD 1ST DISK
-0066                                          /LETTER
-0067                                          /SINCE 1 IS BASE
-0070                                          /WE ADD "A"-1 TO
-0071                                          /TO CONVERT TO
-0072                                          /A DISK LETTER
-0073      6646  4324          JMS SEND        /SEND IT
+0001                  /LAP6-DIAL-MS SERIAL DISK HANDLER INSTALLER
+0002                  /BY ZACHARY KIRTZ
+0003                  /
+0004                  /REVISIONS:
+0005                  /
+0006                  /VERSION: B
+0007                  /DATE: JUL-21-2025
+0010                  /BY: ZACHARY KIRTZ
+0011                  /TO ACCESS UNITS ON A PARTITIONED DISK
+0012                  /WE NEED TO ADD THE ACCESSED UNITS START
+0013                  /BLOCK NUMBER TO THE USER PROVIDED BLOCK
+0014                  /NUMBER.
+0015                  /PRIOR TO VERSION C OF THE SERIAL DISK
+0016                  /HANDLER AND VERSION 2.1 OF THE SERVER,
+0017                  /WE RELIED ON A FEATURE OF THE DIAL-MS
+0020                  /UNIT SELECTION ROUTINE THAT ALLOWS
+0021                  /ADDING A UNIT-SPECIFIC BLOCK OFFSET TO
+0022                  /THE USER PROVIDED BLOCK NUMBER BEFORE
+0023                  /PASSING EXECUTION TO THE DEVICE-HANDLER
+0024                  /FOR THIS.
+0025                  /
+0026                  /AS OF THE AFFOREMENTIONED VERSIONS, WE
+0027                  /NO LONGER DO THIS.
+0030                  /
+0031                  /THE SERVER IS INSTEAD PROVIDED WITH THE
+0032                  /THE ACCESSED UNIT NUMBER AND CALCULATES
+0033                  /THE UNITS OFFSET ON THE DISK ITSELF.
+0034                  /
+0035                  /ACCORDINGLY, THIS UPDATE TO INSTALLER
+0036                  /NO LONGER ASSIGNS BLOCK OFFSETS FOR
+0037                  /THE SERIAL DISK UNITS IN THE UNIT
+0040                  /TABLE.
+0041                  /
+0042                  /FOR THE SUPER EXTENDED UNITS PATH, THIS
+0043                  /ALSO ALLOWED GREATLY SIMPLIFYING THE
+0044                  /SERIAL DISK UNIT TABLE ENTRIES DOWN TO
+0045                  /A SINGLE ENTRY.
+0046                  /
+0047                  /
+0050                  /VERSION: A
+0051                  /DATE: 06-JUN-2025
+0052                  /BY: ZACHARY KIRTZ
+0053                  /INITIAL RELEASE
+0054                  /
+0055                  /DEFINITIONS
+0056                  MTADR=3300      /MTABLE ADDR IN DF
+0057                  LTADR=3630      /LT HNDLR ADDR IN DF
+0060                  EXADR=3430      /EXT HNDLR ADDR IN DF
+0061                  SDADR=2630      /SD HNDLR LOC IN DF
+0062                  HDLRSZ=200-30   /HANDLER SIZE
+0063                  DF=2000         /DATA FIELD START
+0064                  IOBLK1=322      /FIRST IO ROUTINE BLOCK
+0065                  IOBLK2=323      /SECOND IO ROUTINE BLOCK
+0066                  IOCTBK=345      /IO CONTROLLER BLOCK
+0067                  IOMBLK=365      /FIRST MASTER IO ROUTINE
+0070                                  /BLOCK (CONTAINS LT)
+0071                  /
+0072                  /QANDA LOCATIONS
+0073                  QAINIT=1000
+0074                  QARFSH=1053
+0075                  /CODE BEGIN
 -
 
 
 
-0074      6647  2230          ISZ SREAD       /SKIP PAST UNIT
-0075                  /SETUP BUFFER ADDRESS
-0076      6650  1630          TAD I SREAD     /GET ADDR
-0077      6651  7110          CLL RAR         /SHIFT ONE
-0100      6652  0302          AND K7          /MASK UNNEEDED
-0101      6653  7012          RTR;
-0101      6654  7012  RTR             /SHIFT 4 MORE
-0102      6655  3232          DCA AADDR       /SAVE ADDR
-0103                  /SEND OTHER ARGS
-0104      6656  1264          TAD WRFG        /INC WF WITH ADR
-0105      6657  4317          JMS SNDARG      /SEND BUF ADDR
-0106      6660  4317          JMS SNDARG      /SEND BLK NUM
-0107      6661  4317          JMS SNDARG      /SEND BLK CNT
-0110                  /RECEIVE VALUES BACK
-0111      6662  4342          JMS RECV2       /RECV CDF INST
-0112      6663  3264          DCA SCDF        /SAVE IT
-0113      6664  7402  SCDF,   HLT             /CDF AND TMP
-0114      6665  4342          JMS RECV2       /RECV NEG WD CNT
-0115      6666  3317          DCA WDCNT
-0116                  /RECEIVE ACKNOWLEDGEMENT
-0117      6667  4342  SACK,   JMS RECV2       /RECV ACK/NACK
-0120      6670  7450          SNA             /DONE?
-0121      6671  5316          JMP SDONE       /YES? RETURN
-0122      6672  7500          SMA             /NOT R OR W?
-0123      6673  5315          JMP SERR        /YES? ERROR
-0124      6674  7110          CLL RAR         /W BIT IN LINK
-0125      6675  7630          CLA SZL         /W BIT SET?
-0126      6676  5306          JMP SWT         /YES? WRITE
-0127                                          /NO? READ
-0130                  /READ ROUTINE
-0131      6677  4342  SRD,    JMS RECV2       /RECV WORD
-0132      6700  3632          DCA I AADDR     /SAVE IT
-0133      6701  2232          ISZ AADDR       /INC ADDR
-0134      6702  0007  K7,     7               /7 + GUARD WORD
-0135                                          /HARMLESS AND IF
-0136                                          /EXECUTED
-0137      6703  2317          ISZ WDCNT       /INC COUNTER
-0140      6704  5277          JMP SRD         /LOOP BACK
-0141      6705  5267          JMP SACK        /DONE? GET ACK
-0142                  /WRITE ROUTINE
-0143      6706  1632  SWT,    TAD I AADDR     /READ WORD
-0144      6707  4332          JMS SEND2       /SEND IT
-0145      6710  2232          ISZ AADDR       /INC ADDR
-0146      6711  0100  KBSCMD, 101-1           /GUARD + BASE
-0147                                          /DISK LETTER-1
-0150                                          /HARMLESS AND IF
-0151                                          /EXECUTED
-0152      6712  2317          ISZ WDCNT       /INC COUNTER
-0153      6713  5306          JMP SWT         /LOOP BACK
-0154      6714  5267          JMP SACK        /DONE? GET ACK
-0155                  /
-0156                  /ERROR EXIT
-0157                  /DIAL DOES NOT HAVE A PROPER ERROR
-0160                  /RETURN, SO WE WILL JUST HALT BEFORE THE
-0161                  /NORMAL RETURN TO SIGNIFY THAT CAN ERROR
-0162                  /HAS OCURRED.
-0163                  /THE USER MAY CONTINUE, AT THEIR OWN
-0164                  /RISK, BY PRESSING CONTINUE.
-0165      6715  7402  SERR,   HLT
-0166                  /
-0167                  /NORMAL EXIT
-0170      6716  5630  SDONE,  JMP I SREAD
-0171                  /
+0076                          LMODE
+0077      0020  0641          LDF 1           /SWITCH TO DF 1
+0100                                          /FOR STRINGS BU
+0101                  /TELL USER WHAT IS GOING ON AND CONFIRM
+0102                  /THAT THEY WISH TO CONTINUE
+0103      0021  6373          JMP YESNO       /ASK THE USER
+0104      0022  2001          DF SCONF
+0105      0023  0450          AZE             /NO?
+0106      0024  0456          SKP
+0107      0025  6361          JMP HALT        /HALT/RESTART
+0110                  /ASK THE USER IF THEY WANT INSTALL THE
+0111                  /SUPER EXTENDED UNITS PATCH
+0112      0026  6373          JMP YESNO       /ASK THEM
+0113      0027  2633          DF SEXTU
+0114      0030  4064          STC INEXTU      /SAVE AS EXT FG
+0115                                          /BIT0=1 IF YES
+0116                  /ASK THE USER IF THEY WANT TO HAVE DIAL
+0117                  /USE SERIALDISK AS THE SYS DEVICE
+0120      0031  6373          JMP YESNO       /ASK THE USER
+0121      0032  2300          DF SASSYS
+0122      0033  0321          ROR I 1         /ROT BOT IN LINK
+0123      0034  1020          LDA I           /LOAD LT ADDR
+0124      0035  7630          7630
+0125      0036  0452          LZE             /ADD SD DIFF
+0126                                          /IF SD IS SYS
+0127      0037  2421          ADD KEXDIF      /-200
+0130      0040  4420          STC HSYSAD      /SAVE SYS ADDR
+0131                  /ASK THE USER IF THEY WANT TO COPY
+0132                  /SYSTEM DATA TO FIRST SERIALDISK
+0133                  /IFF WE ARE USING SD AS SYS
+0134      0041  0452          LZE             /LINK UNTOUCHED
+0135                                          /FROM EARLIER
+0136      0042  0456          SKP
+0137      0043  6047          JMP NOSCP       /NO? SKP THIS
+0140      0044  6373          JMP YESNO       /ASK EM
+0141      0045  3113          DF SCPSYS
+0142      0046  4146          STC CSYSF       /SAVE TO FLAG
+0143                  /READ TWO BLOCKS INTO DATA FIELD
+0144      0047  0416  NOSCP,  STD             /WAIT FOR TAPE
+0145                                          /DONE IF RESTART
+0146      0050  6047          JMP .-1
+0147      0051  0643          LDF 3           /SWITCH MISC DF
+0150      0052  1020          LDA I           /FORCE IO PRESET
+0151      0053  0020          0020
+0152      0054  0004          ESF
+0153      0055  0700          RDC             /READ CONT BLK
+0154      0056  6345          6000 IOCTBK
+0155      0057  0700          RDC             /BLK HNDLR BLK
+0156      0060  7365          7000 IOMBLK
+0157                  /GO DOWN THE SUPER EXTENDED UNIT PATH
+0160                  /IF REQUESTED
+0161      0061  0070          SET I 10        /SET TBL ADDR
+0162      0062  3277          MTADR-1
+0163      0063  1020          LDA I
+0164      0064  0000  INEXTU, 0
+0165      0065  0450          AZE             /SKIP IN NOT
+0166      0066  6237          JMP EXTBL
+0167                  /WRITE LINCTAPE UNIT ENTRIES
+0170      0067  0011          CLR
+0171      0070  4013          STC 13          /0 OFFSET INC
+0172      0071  4014          STC 14          /AND UNIT NUM
+0173      0072  0071          SET I 11        /SET HNDLR ADDR
+0174      0073  7630          7630
 -
 
 
 
-0172                  /SEND CURRENT READ ARGUMENT AND INC
-0173      6717  0000  SNDARG, 0
-0174      6720  1630          TAD I SREAD
-0175      6721  2230          ISZ SREAD
-0176                          /NOP            /GUARD; UNNEEDE
-0177      6722  4332          JMS SEND2
-0200      6723  5717          JMP I SNDARG
-0201                  /SEND SINGLE 8BIT CHAR
-0202                  /PARAM[AC] CHARACTER
-0203      6724  0000  SEND,   0
-0204      6725  6416          TLS2            /SEND CHAR
-0205      6726  6411          TSF2            /WAIT FOR FINISH
-0206      6727  5326          JMP .-1
-0207      6730  3342          DCA SNDTMP      /SAVE+CLEANUP
-0210      6731  5724          JMP I SEND      /RETURN
-0211                  /
-0212                  /SEND 12BIT AS TWO 8BIT
-0213                  /PARAM[AC] 12BIT
-0214      6732  0000  SEND2,  0
-0215      6733  4324          JMS SEND        /SEND BOT 8
-0216      6734  1342          TAD SNDTMP      /GET BACK
-0217      6735  7112          CLL RTR         /GET TOP 4
-0220      6736  7012          RTR;
-0220      6737  7012  RTR
-0221      6740  4324          JMS SEND        /SEND THEM
-0222                                          /+ EXTRAS, BUT
-0223                                          /THIS IS FINE
-0224      6741  5732          JMP I SEND2     /RETURN
-0225                  /
-0226                  /RECEIVE SINGLE 12BIT AS TWO 8BIT
-0227                  /RESULT[AC] 12BIT
-0230      6742  0000  RECV2,  0
-0231      6743  6401          KSF2            /GET 1ST 6BIT
-0232      6744  5343          JMP .-1
-0233      6745  6406          KRB2
-0234      6746  7106          CLL RTL         /SHIFT TO UPPER
-0235      6747  7006          RTL;
-0235      6750  7006  RTL
-0236      6751  3324          DCA RCVTMP      /SAVE EM
-0237      6752  6401          KSF2            /GET 2ND 6BIT
-0240      6753  5352          JMP .-1
-0241      6754  6406          KRB2
-0242      6755  1324          TAD RCVTMP      /ADD TOP 6
-0243      6756  5742          JMP I RECV2     /RETURN
-0244                  /
-0245                  /LOCAL VARIABLES
-0246                  WRFG=SCDF       /WRITE FLAG
-0247                                  /REUSE RECV RET
-0250                  SNDTMP=RECV2    /SEND TEMP WORD
-0251                  RCVTMP=SEND     /RECV TEMP WORD
-0252                  WDCNT=SNDARG    /WORD COUNT (NEGATED)
-0253                  AADDR=SWRITE    /ACCESS ADDRESS
+0175      0074  0075          SET I 15        /SET COUNTER
+0176      0075  7767          -10
+0177      0076  6325          JMP WRENTS      /WRITE ENTRIES
+0200                  /WRITE SPECIAL/SYSTEM UNITS
+0201      0077  1020          LDA I   /SYSTEM AREA
+0202      0100  0100          100             /UNIT NUMBER
+0203      0101  0051          SET 11          /HNDLR ADDR
+0204      0102  0420          HSYSAD          /SET EARLIER
+0205      0103  0072          SET I 12        /BLK OFFSET
+0206      0104  0300          300
+0207      0105  6315          JMP WRENT       /WRITE SYS ENTRY
+0210      0106  1020          LDA I           /SOURCE WORK
+0211      0107  0110          110
+0212      0110  0072          SET I 12        /NEW BLK OFFSET
+0213      0111  0370          370
+0214      0112  6315          JMP WRENT       /WRITE SRC WORK
+0215      0113  1020          LDA I
+0216      0114  0111          111
+0217                                          /OFFS UNCHANGED
+0220      0115  6315          JMP WRENT       /WRITE BIN WORK
+0221                  /WRITE SERIALDISK ENTRIES
+0222      0116  0074          SET I 14        /SET START UNIT
+0223      0117  0010          10
+0224      0120  0071          SET I 11        /SET EXT HNDLR
+0225      0121  7430          7430            /ADDRESS
+0226      0122  0073          SET I 13        /SET OFFS INC
+0227      0123  0000          0
+0230      0124  0075          SET I 15        /SET COUNT
+0231      0125  7771          -6
+0232      0126  6325          JMP WRENTS      /WRITE ENTRIES
+0233                  /WRITE SECOND SD ENTRIES
+0234                  /       SET I 14        /START UNIT
+0235                  /       1010
+0236                  /       JMP WRENTS      /WRITE EM
+0237                  /WRITE ACTUAL HANDLER DATA
+0240                  WRHNDR,                 /WRITE HANDLER
+0241                                          /SUPER EXT PATH
+0242                                          /RETS HERE ALSO
+0243      0127  0061          SET I 1         /SET SRC LOC
+0244      0130  2627          SDADR-1         /SD HNDLR IN IF
+0245      0131  0062          SET I 2         /SET DST LOC
+0246      0132  3427          EXADR-1         /EXT HNDLR IN DF
+0247      0133  0063          SET I 3         /SET COUNTER
+0250      0134  7627          -HDLRSZ
+0251      0135  1021  WREXLP, LDA I 1         /LOAD SRC WORD
+0252      0136  1062          STA I 2         /STORE TO DST
+0253      0137  0223          XSK I 3         /INC COUNTER
+0254      0140  6135          JMP WREXLP      /NOT DONE? LOOP
+0255                                          /DONE? CONTINUE
+0256                  /WRITE BLOCKS BACK TO TAPE
+0257      0141  0704          WRC             /WRITE 232 BACK
+0260      0142  6322          6000 IOBLK1
+0261      0143  0704          WRC             /WRITE 233 BACK
+0262      0144  7323          7000 IOBLK2
+0263                  /COPY SYSTEM AREA OVER IF REQUESTED
+0264                  /THIS USES THE DIAL HANDLERS WE ALREADY
+0265                  /HAVE IN CORE
+0266      0145  1520          SRO I           /B11 WILL BE SET
+0267                                          /IF YES
+0270      0146  0000  CSYSF,  0000            /COPY SYS FLAG
+0271      0147  0456          SKP
+0272      0150  6222          JMP NOCSY       /NO? WE ARE DONE
+0273                                          /YES? CONTINUE
+-
+
+
+
+0274      0151  1020          LDA I           /SETUP BLK NUMS
+0275      0152  0300          300             /SYS START
+0276      0153  4605          STC DRDAR+2     /SAVE READ BLK
+0277      0154  4611          STC DWTAR+2     /SAVE WRITE BLK
+0300      0155  2606          ADD DRDAR+3     /ALSO COUNT FOR
+0301      0156  4612          STC DWTAR+3     /WRITE
+0302      0157  0061          SET I 1         /SETUP COUNTER
+0303      0160  7707          -70             /70 BLOCKS
+0304                          /COPY LOOP
+0305      0161  1020  CSYLP,  LDA I           /CHECK IF WE
+0306      0162  0020          20              /NEED TO CUT
+0307                                          /WRITE LENGTH
+0310      0163  1140          ADM
+0311      0164  0001          0001
+0312      0165  0451          APO             /IF YES, ADD
+0313                                          /AN OFFSET
+0314      0166  0011          CLR             /NO->NO OFFSET
+0315      0167  0017          COM
+0316      0170  2612          ADD DWTAR+3
+0317      0171  4612          STC DWTAR+3
+0320                                          /(OVER READING
+0321                                          /IS FINE)
+0322      0172  6613          JMP DREAD       /READ BLOCKS
+0323      0173  6620          JMP DWRITE      /WRITE EM BACK
+0324      0174  1020          LDA I           /INC BLK NUMS
+0325      0175  0020          20
+0326      0176  1140          ADM             /READ NUM
+0327      0177  0605          DRDAR+2
+0330      0200  1020          LDA I
+0331      0201  0020          20
+0332      0202  1140          ADM             /WRITE NUM
+0333      0203  0611          DWTAR+2
+0334      0204  1000          LDA             /CHECK COUNTER
+0335      0205  0001  K1,     0001
+0336      0206  0451          APO             /ARE WE DONE?
+0337      0207  6161          JMP CSYLP       /NO? LOOP BACK
+0340                  /WRITE GARBAGE TO THE INDEX TO DESTROY
+0341                  /IT. THE DATA WE WRITE DOES NOT MATTER
+0342                  /SO LONG AS IT DOES NOT BEGIN WITH "/"
+0343                  /DIAL WILL CLEANUP FOR US LATER
+0344      0210  1020          LDA I           /SET BLK NUM
+0345      0211  0046          46              /TO 1ST INDEX
+0346      0212  4611          STC DWTAR+2
+0347      0213  2205          ADD K1          /COUNT TO 1
+0350      0214  4612          STC DWTAR+3
+0351      0215  0644          LDF 4           /0 1ST WORD
+0352      0216  1040          STA
+0353      0217  2000          2000
+0354      0220  0643          LDF 3           /BACK HOME
+0355      0221  6620          JMP DWRITE      /WRITE IT
+0356                  /TELL USER WE ARE DONE
+0357                  /AND MAYBE RETURN TO DIAL
+0360      0222  0641  NOCSY,  LDF 1           /TO STR LAND
+0361      0223  6373          JMP YESNO
+0362      0224  2544          DF SDONE
+0363      0225  0450          AZE
+0364      0226  6625          JMP DRET        /YES? JMP DIAL
+0365                  /SPOOL TAPE TO BEGINNING AND RESTART
+0366      0227  0643          LDF 3           /BACK TO TAPE
+0367                                          /DATA LAND
+0370      0230  0021          XOA             /SET NO-PAUSE
+0371      0231  1620          BSE I
+0372      0232  0010          0010
+-
+
+
+
+0373      0233  0001          AXO
+0374      0234  0702          RDE
+0375      0235  6000          6000
+0376      0236  6020          JMP 20          /RESTART
+0377                  /
+0400                  /SUPER EXTENDED UNIT TABLE PATCH PATH
+0401                  /WILL RETURN TO MAIN POST-TABLE WRITING
+0402      0237  0011  EXTBL,  CLR
+0403      0240  4012          STC 12          /0 EXPECTED VAL
+0404      0241  4014          STC 14          /0 OFFSET
+0405      0242  0071          SET I 11        /SETUP LT ENTRY
+0406      0243  7770          7770            /MASK
+0407      0244  0073          SET I 13
+0410      0245  7630          7630            /HNDLR
+0411      0246  6344          JMP WEXENT      /WRITE IT
+0412                          /WRITE SYS ENTRIES
+0413      0247  0071          SET I 11        /SYS AREA
+0414      0250  7777          7777            /UNIT 100
+0415      0251  0072          SET I 12
+0416      0252  7700          -0100+1         /1S COMP STUFF
+0417      0253  0053          SET 13
+0420      0254  0420          HSYSAD          /EX SYS HNDLR
+0421      0255  0074          SET I 14
+0422      0256  0300          300
+0423      0257  6344          JMP WEXENT      /WRITE IT
+0424      0260  0072          SET I 12        /BIN WORK AREA
+0425                                          /UNIT 111
+0426      0261  7667          -0111+1
+0427      0262  0074          SET I 14        /SET OFFSET
+0430      0263  0370          370
+0431      0264  6344          JMP WEXENT      /WRITE IT
+0432      0265  0232          XSK I 12        /INC UNIT 110
+0433      0266  6344          JMP WEXENT      /WRITE IT
+0434                  /WRITE SERIAL DISK ENTRY
+0435                  /THIS WILL COVER ALL UNITS INCLUDING LT
+0436                  /UNITS, BUT THIS ENTRY WONT BE PARSED
+0437                  /UNTIL AFTER THE LT ENTRY, SO THIS IS OK
+0440      0267  0011          CLR
+0441      0270  4012          STC 12          /0 EXPECTED VAL
+0442      0271  4014          STC 14          /0 OFFSET
+0443      0272  0071          SET I 11        /MASK
+0444      0273  7700          7700
+0445      0274  0073          SET I 13        /HNDLR ADDR
+0446      0275  7430          7430
+0447      0276  6344          JMP WEXENT
+0450                  /WRITE EXT UNIT TABLE PATCH
+0451      0277  0070          SET I 10        /PATCH ADDR
+0452                          /USPAT-1 DF     /ASSY IS BEING
+0453                                          /DUMB WITH THIS
+0454                                          /SO HARDCODE IT
+0455      0300  2000          2000
+0456      0301  6303          JMP WRPAT       /WRITE PATCH
+0457      0302  6127          JMP WRHNDR      /RETURN TO MAIN
+0460                  /
+0461                  /WRITE A PATCH CONSISTING OF ALTERNATING
+0462                  /LOCATION AND DATA PAIRS
+0463                  /AN ADDRESS OF ZERO WILL BE INTERPRETED
+0464                  /AS THE END OF THE PATCH
+0465                  /PARAM[10] PATCH LOCATION-1
+0466      0303  0052  WRPAT,  SET 12  /SAVE RET
+0467      0304  0000          0
+0470      0305  1030  WRPLP,  LDA I 10        /LOAD ADDR
+0471      0306  0450          AZE             /0 ADDR=DONE
+-
+
+
+
+0472      0307  0456          SKP
+0473      0310  6012          JMP 12
+0474      0311  4011          STC 11          /SAVE ADDR
+0475      0312  1030          LDA I 10        /LOAD DATA WORD
+0476      0313  1051          STA 11          /SAVE TO ADDR
+0477      0314  6305          JMP WRPLP       /LOOP BACK
+0500                  /WRITE A STANDARD UNIT TABLE ENTRY
+0501                  /THIS WILL WRITE A UNIT ENTRY TO A UNIT
+0502                  /TABLE USING PROVIDED VALUES
+0503                  /PARAM[AC] UNIT NUMBER
+0504                  /PARAM[10] NEW ENTRY ADDR-1
+0505                  /PARAM[11] HANDLER ADDRESS
+0506                  /PARAM[12] BLOCK OFFSET
+0507                  /AC WILL BE CLEARED
+0510                  /10 WILL CONTAIN THE ENTRY END ADDR
+0511      0315  1070  WRENT,  STA I 10        /SAVE UNIT
+0512      0316  1000          LDA             /GET HNDLR ADDR
+0513      0317  0011          0011
+0514      0320  1070          STA I 10        /SAVE IT
+0515      0321  1000          LDA             /GET BLK OFFSET
+0516      0322  0012          0012
+0517      0323  1070          STA I 10        /SAVE IT
+0520      0324  6000          JMP 0           /RETURN
+0521                  /
+0522                  /WRITE STANDARD ENTRY SET
+0523                  /THIS WILL WRITE A SET OF UNIT ENTRIES
+0524                  /TO A UNIT TABLE
+0525                  /BLOCK OFFSET WILL START AT 0, BUT CAN
+0526                  /BE BE INCREASED BY A FIXED AMOUNT AFTER
+0527                  /EACH ADDED ENTRY
+0530                  /PARAM[10] UNIT TABLE ADDRESS-1
+0531                  /PARAM[11] HANDLER ADDRESS
+0532                  /PARAM[13] OFFSET INCREMENT
+0533                  /PARAM[14] FIRST UNIT NUMBER
+0534                  /PARAM[15] NEGATED ENTRY COUNT
+0535      0325  0057  WRENTS, SET 17          /SAVE RET
+0536      0326  0000          0
+0537      0327  0072          SET I 12        /SET START OFFS
+0540      0330  0000          0
+0541      0331  1000  WRSLP,  LDA             /GET UNIT NUM
+0542      0332  0014          0014
+0543      0333  6315          JMP WRENT       /WRITE ENTRY
+0544      0334  1000          LDA             /LOAD ADDR INC
+0545      0335  0013          0013
+0546      0336  1140          ADM             /ADD IT ON
+0547      0337  0012          0012
+0550      0340  0234          XSK I 14        /INC UNIT
+0551      0341  0235          XSK I 15        /INC COUNTER
+0552      0342  6331          JMP WRSLP       /NOT DONE? LOOP
+0553      0343  6017          JMP 17          /DONE? RET
+0554                  /
+0555                  /WRITE SUPER EXTENDED UNIT TABLE ENTRY
+0556                  /PARAM[10] NEW ENTRY LOCATION-1
+0557                  /PARAM[11] BITMASK VALUE
+0560                  /PARAM[12] BITMASK RESULT VALUE
+0561                  /PARAM[13] HANDLER ADDRESS
+0562                  /PARAM[14] BLOCK OFFSET
+0563      0344  1000  WEXENT, LDA             /GET MASK
+0564      0345  0011          0011
+0565      0346  1070          STA I 10
+0566      0347  1000          LDA             /GET VALUE
+0567      0350  0012          0012
+0570      0351  1070          STA I 10
+-
+
+
+
+0571      0352  1000          LDA             /GET HNDLR
+0572      0353  0013          0013
+0573      0354  1070          STA I 10
+0574      0355  1000          LDA             /GET BLK OFFS
+0575      0356  0014          0014
+0576      0357  1070          STA I 10
+0577      0360  6000          JMP 0           /RET
+0600                  /
+0601                  /
+0602                  /HALT ROUTINE
+0603                  /CAUSE A HALT THEN RESTART IF THE USER
+0604                  /CONTINUES AFTER
+0605      0361  0000  HALT,   HLT
+0606      0362  6020          JMP 20
+0607                  /ABORT WITH A MESSAGE
+0610                  /MESSAGE ADDRESS SHOULD BE STORED IN
+0611      0363  0641  ABMSG,  LDF 1           /TO STR DF
+0612      0364  6373          JMP YESNO
+0613      0365  1212          SABRT
+0614      0366  0450          AZE             /YES? RESTART
+0615      0367  6361          JMP HALT        /NO? HALT
+0616      0370  6020          JMP 20          /RESTART
+0617                  /ASK A YES OR NO QUESTION AND RETURN
+0620                  /THE RESULT IN AC
+0621                  /IF YES, AC=1, OTHERWISE AC=0
+0622                  /MESSAGE ADDRESS SHOULD BE STORED IN
+0623                  /THE LOCATION FOLLOWING THE JMP TO HERE
+0624      0371  0000  YNBUF,  0
+0625      0372  0000          0
+0626      0373  1000  YESNO,  LDA
+0627      0374  0000          0
+0630      0375  1560          BCL I           /CLEAR JMP BITS
+0631      0376  6000          JMP
+0632      0377  4011          STC 11          /SAVE TO INDEX
+0633      0400  1011          LDA 11          /GET STR ADDR
+0634      0401  4405          STC YNSTR       /SAVE IT
+0635      0402  0050          SET 10  /SAVE RET ADDR
+0636      0403  0000          0
+0637      0404  7000          JMP QAINIT
+0640      0405  0000  YNSTR,  0000
+0641      0406  0371          YNBUF
+0642      0407  7053          JMP QARFSH
+0643      0410  1000          LDA             /LOAD ANSWER
+0644      0411  0371          YNBUF
+0645      0412  1460          SAE I           /IS MARK+Y?
+0646      0413  7431          7431
+0647      0414  0011          CLR             /NO? CLEAR
+0650      0415  0230          XSK I 10        /INC RET
+0651      0416  0016          NOP             /GUARD
+0652      0417  6010          JMP 10
+0653                  /
+0654                  /GLOBAL VARS
+0655      0420  0000  HSYSAD, 0               /SYS HNDLR ADR
+0656                  /
+0657                  /CONSTANTS
+0660      0421  7577  KEXDIF, -200    /DIFF BETWEEN LT AND EXT
+0661      0422  1000  K1000,  1000
+0662                                  /UNIT HANDLER ADDRESSES
+0663                          PAGE
+0664                  /
+0665                  /PDP STUFF
+0666                  /
+0667                  /CONSTANTS
+-
+
+
+
+0670      0600  7774  KREAD,  7774
+0671      0601  7775  KWRITE, 7775
+0672      0602  7777  KRESET, 7777
+0673                  /
+0674                  /DIAL-MS IO ROUTINE ARGS
+0675                  /BLOCK START NUMBER CHANGES
+0676                  /OTHER ARGS NEVER CHANGE
+0677                  /
+0700                  /READ ARGS
+0701      0603  0000  DRDAR,  0               /UNIT 0
+0702      0604  0020          0020            /FIELD 1 START
+0703      0605  0000          0               /1ST BLK NUM
+0704      0606  0020          20              /BLK COUNT
+0705                  /
+0706                  /WRITE ARGS
+0707      0607  0100  DWTAR,  100             /SYS AREA UNIT
+0710      0610  0020          0020            /FIELD 1 START
+0711      0611  0000          0               /1ST BLK NUM
+0712      0612  0020          20              /BLK COUNT
+0713                  /
+0714                  /IO ROUTINE CALLERS
+0715                  /
+0716                  /READ ROUTINE
+0717      0613  0002  DREAD,  PDP             /TO 8MODE
+0720                          PMODE
+0721      4614  4600          JMS I KREAD
+0722      4615  4603          DRDAR
+0723      4616  6141          LINC            /BACK TO LMODE
+0724                          LMODE
+0725      0617  6000          JMP 0           /RETURN
+0726                  /
+0727                  /WRITE ROUTINE
+0730      0620  0002  DWRITE, PDP             /TO 8MODE
+0731                          PMODE
+0732      4621  4601          JMS I KWRITE
+0733      4622  4607          DWTAR
+0734      4623  6141          LINC            /TO TO L
+0735                          LMODE
+0736      0624  6000          JMP 0           /RETURN
+0737                  /
+0740                  /RETURN TO DIAL
+0741      0625  0002  DRET,   PDP             /TO 8MODE
+0742                          PMODE
+0743      4626  5602          JMP I KRESET
+0744      4627  7402          HLT             /SHOULD NOT RET
+0745                          LMODE
+0746                  /
+0747                  /
+0750                  /MISC DATA SEGMENT
+0751                  /TAPE DATA LIVES IN SECOND HALF
+0752                  SEGMNT 3
+0753                  /
+0754                  /SUPER EXTENDED UNIT SELECTOR PATCHES
+0755                  /DIAL-MS USES A UNIT TABLE TO SELECT
+0756                  /APPROPRIATE HANDLERS AND OFFSETS FOR
+0757                  /EACH UNIT. ORIGINALLY, THIS TABLE
+0760                  /INCLUDED AN ENTRY FOR EACH UNIT,
+0761                  /DESPITE MOST UNITS SHARING THE SAME
+0762                  /ATTRIBS. THESE PATCHES MODIFY THE UNIT
+0763                  /TABLE STRUCTURE TO INCLUDE A BITMASK +
+0764                  /EXPECTED RESULT TO MATCH UNIT INFO.
+0765                  /THE BITMASK IS APPLIED TO UNIT BEING
+0766                  /SEARCHED. IF THE RESULT MATCHES THE
+-
+
+
+
+0767                  /RESULT IN THE ENTRY, THAT ENTRY IS
+0770                  /SELECTED. THIS SAVES A LOT OF SPACE.
+0771                  /ADDRESS; PATCH
+0772      0000  0000          0               /THINGS GET ODD
+0773                                          /IF WE START AT
+                              /ADDR 0
+0774      0001  3030  USPAT,  DF 1030;
+0774      0002  4330   4330   /JMS STCDF
+0775      0003  3031          DF 1031;
+0775      0004  5242   5242   /JMP 42
+0776      0005  3043          DF 1043;
+0776      0006  1742   1742   /TAD I TEMP
+0777      0007  3044          DF 1044;
+0777      0010  7450   7450   /SNA
+1000      0011  3045          DF 1045;
+1000      0012  5257   5257   /JMP MNOT
+1001      0013  3046          DF 1046;
+1001      0014  0317   0317   /AND CUINT
+1002      0015  3047          DF 1047;
+1002      0016  2342   2342   /ISZ TEMP
+1003      0017  3050          DF 1050;
+1003      0020  1742   1742   /TAD I TEMP
+1004      0021  3056          DF 1056;
+1004      0022  5243   5243   /JMP MLOOP
+1005      0023  0000          0               /TERMINATOR
+1006                  /
+1007                  /
+1010                  /STRING SEGMENT
+1011                  SEGMNT 1
+1012                  /QA STRINGS
+1013                  /CONFIRMATION PROMPT
+1014      0000  0000          0       /QANDA DOESNT LIKE STRS
+1015                                  /TO START AT LOC 0 IN DF
+1016                                  /SO ADD ONE PADDING WORD
+1017      0001  0623
+1017      0002  0522
+1017      0003  1101
+1017      0004  1440
+1017      0005  0411
+1017      0006  2313
+1017      0007  4011
+1017      0010  1623
+1017      0011  2401
+1017      0012  1414
+1017                  SCONF,  TEXT "FSERIAL DISK INSTALLER
+1020      0013  0522
+1020
+1021      0014  4340
+1021      0015  4324
+1021      0016  1011
+1021      0017  2340
+1021      0020  2711
+1021      0021  1414
+1021      0022  4011
+1021      0023  1623
+1021      0024  2401
+1021      0025  1414
+1021      0026  4024
+1021      0027  1005
+1021      0030  4023
+1021      0031  0522
+1021      0032  1101
+1021      0033  1440
+-
+
+
+
+1021      0034  0411
+1021      0035  2313
+1021      0036  4010
+1021      0037  0116
+1021      0040  0414
+1021                  THIS WILL INSTALL THE SERIAL DISK HANDLER
+1022      0041  0522
+1022      0042  4310
+1022      0043  0617
+1022      0044  2240
+1022      0045  1401
+1022      0046  2066
+1022      0047  5504
+1022      0050  1101
+1022      0051  1455
+1022      0052  1523
+1022      0053  5640
+1022      0054  1106
+1022      0055  4001
+1022      0056  1617
+1022      0057  2410
+1022      0060  0522
+1022      0061  4005
+1022      0062  3024
+1022      0063  2201
+1022      0064  4004
+1022      0065  0526
+1022      0066  1103
+1022                  HFOR LAP6-DIAL-MS. IF ANOTHER EXTRA DEVICE
+1023      0067  0543
+1023      0070  1001
+1023      0071  1604
+1023      0072  1405
+1023      0073  2240
+1023      0074  1123
+1023      0075  4011
+1023      0076  1623
+1023      0077  2401
+1023      0100  1414
+1023      0101  0504
+1023      0102  5440
+1023      0103  1124
+1023      0104  4027
+1023      0105  1114
+1023      0106  1440
+1023      0107  0205
+1023      0110  4022
+1023      0111  0520
+1023      0112  1401
+1023      0113  0305
+1023                  HANDLER IS INSTALLED, IT WILL BE REPLACED
+1024      0114  0443
+1024      0115  2711
+1024      0116  2410
+1024      0117  4024
+1024      0120  1005
+1024      0121  4023
+1024      0122  0522
+1024      0123  1101
+1024      0124  1440
+1024      0125  0411
+1024      0126  2313
+1024      0127  4010
+-
+
+
+
+1024      0130  0116
+1024      0131  0414
+1024      0132  0522
+1024      0133  5624
+1024      0134  1011
+1024      0135  2340
+1024      0136  2711
+1024                  WITH THE SERIAL DISK HANDLER.THIS WILL
+1025      0137  1414
+1025      0140  4303
+1025      0141  1716
+1025      0142  0611
+1025      0143  0725
+1025      0144  2205
+1025      0145  4024
+1025      0146  1005
+1025      0147  4025
+1025      0150  1611
+1025      0151  2440
+1025      0152  1625
+1025      0153  1502
+1025      0154  0522
+1025      0155  2340
+1025      0156  0123
+1025      0157  4006
+1025      0160  1714
+1025      0161  1417
+1025      0162  2723
+1025                  CONFIGURE THE UNIT NUMBERS AS FOLLOWS:
+1026      0163  7243
+1026      0164  5240
+1026      0165  6060
+1026      0166  5560
+1026      0167  6572
+1026      0170  4014
+1026      0171  1116
+1026      0172  0324
+1026      0173  0120
+1026                  * 00-05: LINCTAPE
+1027      0174  0543
+1027      0175  5240
+1027      0176  6160
+1027      0177  5561
+1027      0200  6572
+1027      0201  4023
+1027      0202  0522
+1027      0203  1101
+1027      0204  1440
+1027      0205  0411
+1027      0206  2313
+1027      0207  4061
+1027      0210  4010
+1027      0211  0114
+1027      0212  0640
+1027                  * 10-15: SERIAL DISK 1 HALF 1
+1030      0213  6143
+1030      0214  1501
+1030      0215  1305
+1030      0216  4023
+1030      0217  2522
+1030      0220  0540
+1030      0221  3117
+1030      0222  2522
+-
+
+
+
+1030      0223  4014
+1030      0224  0120
+1030      0225  6655
+1030      0226  0411
+1030      0227  0114
+1030      0230  5515
+1030      0231  2340
+1030      0232  2401
+1030      0233  2005
+1030      0234  4011
+1030      0235  2340
+1030      0236  1517
+1030      0237  2516
+1030      0240  2405
+1030                  MAKE SURE YOUR LAP6-DIAL-MS TAPE IS MOUNTED
+1031      0241  0443
+1031      0242  1716
+1031      0243  4025
+1031      0244  1611
+1031      0245  2440
+1031      0246  6040
+1031      0247  0116
+1031      0250  0440
+1031      0251  2410
+1031      0252  0124
+1031      0253  4027
+1031      0254  2211
+1031      0255  2405
+1031      0256  4005
+1031      0257  1601
+1031      0260  0214
+1031      0261  0540
+1031      0262  1123
+1031      0263  4023
+1031      0264  0524
+1031                  ON UNIT 0 AND THAT WRITE ENABLE IS SET.
+1032      0265  5643
+1032      0266  0317
+1032      0267  1624
+1032      0270  1116
+1032      0271  2505
+1032      0272  7740
+1032      0273  5031
+1032      0274  5716
+1032      0275  5140
+1032      0276  7461
+1032      0277  3400
+1032                  CONTINUE? (Y/N) <1\"
+1033                  /
+1034                  /INSTALL AS SYSTEM PROMPT
+1035      0300  0623
+1035      0301  0522
+1035      0302  1101
+1035      0303  1440
+1035      0304  0411
+1035      0305  2313
+1035      0306  4011
+1035      0307  1623
+1035      0310  2401
+1035      0311  1414
+1035                  SASSYS, TEXT "FSERIAL DISK INSTALLER
+1036      0312  0522
+1036
+-
+
+
+
+1037      0313  4340
+1037      0314  4323
+1037      0315  0524
+1037      0316  2520
+1037      0317  4023
+1037      0320  0522
+1037      0321  1101
+1037      0322  1440
+1037      0323  0411
+1037      0324  2313
+1037      0325  4001
+1037      0326  2340
+1037      0327  2331
+1037      0330  2324
+1037      0331  0515
+1037      0332  4004
+1037      0333  0526
+1037      0334  1103
+1037                  SETUP SERIAL DISK AS SYSTEM DEVICE.
+1040      0335  0556
+1040      0336  4324
+1040      0337  1011
+1040      0340  2340
+1040      0341  2711
+1040      0342  1414
+1040      0343  4020
+1040      0344  2524
+1040      0345  4024
+1040      0346  1005
+1040      0347  4023
+1040      0350  1725
+1040      0351  2203
+1040      0352  0540
+1040      0353  2717
+1040      0354  2213
+1040      0355  4001
+1040      0356  1604
+1040      0357  4023
+1040      0360  3123
+1040      0361  2405
+1040                  THIS WILL PUT THE SOURCE WORK AND SYSTEM
+1041      0362  1543
+1041      0363  0122
+1041      0364  0501
+1041      0365  2340
+1041      0366  1716
+1041      0367  4024
+1041      0370  1005
+1041      0371  4006
+1041      0372  1122
+1041      0373  2324
+1041      0374  4020
+1041      0375  0122
+1041      0376  2440
+1041      0377  1706
+1041      0400  4024
+1041      0401  1005
+1041      0402  4023
+1041      0403  0522
+1041      0404  1101
+1041                  AREAS ON THE FIRST PART OF THE SERIAL
+1042      0405  1443
+1042      0406  0411
+-
+
+
+
+1042      0407  2313
+1042      0410  4001
+1042      0411  1604
+1042      0412  4024
+1042      0413  1005
+1042      0414  4002
+1042      0415  1116
+1042      0416  0122
+1042      0417  3140
+1042      0420  2717
+1042      0421  2213
+1042      0422  4001
+1042      0423  2205
+1042      0424  0140
+1042      0425  1716
+1042      0426  4024
+1042      0427  1005
+1042      0430  4023
+1042      0431  0503
+1042      0432  1716
+1042                  DISK AND THE BINARY WORK AREA ON THE SECOND
+1043      0433  0443
+1043      0434  2001
+1043      0435  2224
+1043      0436  5640
+1043      0437  0217
+1043      0440  1724
+1043      0441  1116
+1043      0442  0740
+1043      0443  0116
+1043      0444  0440
+1043      0445  2523
+1043      0446  1116
+1043      0447  0740
+1043      0450  1401
+1043      0451  2066
+1043      0452  5504
+1043      0453  1101
+1043      0454  1455
+1043      0455  1523
+1043      0456  4027
+1043      0457  1114
+1043                  PART. BOOTING AND USING LAP6-DIAL-MS WILL
+1044      0460  1443
+1044      0461  2205
+1044      0462  2125
+1044      0463  1122
+1044      0464  0540
+1044      0465  0140
+1044      0466  2305
+1044      0467  2211
+1044      0470  0114
+1044      0471  4004
+1044      0472  1123
+1044      0473  1340
+1044      0474  0317
+1044      0475  1616
+1044      0476  0503
+1044      0477  2411
+1044      0500  1716
+1044                  REQUIRE A SERIAL DISK CONNECTION.
+1045      0501  5643
+1045      0502  0417
+-
+
+
+
+1045      0503  4031
+1045      0504  1725
+1045      0505  4027
+1045      0506  0116
+1045      0507  2440
+1045      0510  2417
+1045      0511  4023
+1045      0512  0524
+1045      0513  2520
+1045      0514  4024
+1045      0515  1005
+1045      0516  4023
+1045      0517  0522
+1045      0520  1101
+1045      0521  1440
+1045      0522  0411
+1045      0523  2313
+1045      0524  4001
+1045                  DO YOU WANT TO SETUP THE SERIAL DISK AS
+1046      0525  2340
+1046      0526  4324
+1046      0527  1005
+1046      0530  4023
+1046      0531  3123
+1046      0532  2405
+1046      0533  1557
+1046      0534  2717
+1046      0535  2213
+1046      0536  4004
+1046      0537  0526
+1046      0540  1103
+1046      0541  0577
+1046      0542  4074
+1046      0543  6134
+1046                  THE SYSTEM/WORK DEVICE? <1\"
+1047                  /
+1050                  /INSTALL FINISHED MESSAGE
+1051      0544  0623
+1051      0545  0522
+1051      0546  1101
+1051      0547  1440
+1051      0550  0411
+1051      0551  2313
+1051      0552  4011
+1051      0553  1623
+1051      0554  2401
+1051      0555  1414
+1051                  SDONE,  TEXT "FSERIAL DISK INSTALLER
+1052      0556  0522
+1052
+1053      0557  4340
+1053      0560  4324
+1053      0561  1005
+1053      0562  4023
+1053      0563  0522
+1053      0564  1101
+1053      0565  1440
+1053      0566  0411
+1053      0567  2313
+1053      0570  4010
+1053      0571  0116
+1053      0572  0414
+1053      0573  0522
+-
+
+
+
+1053      0574  4027
+1053      0575  0123
+1053      0576  4011
+1053      0577  1623
+1053      0600  2401
+1053      0601  1414
+1053      0602  0504
+1053                  THE SERIAL DISK HANDLER WAS INSTALLED.
+1054      0603  5643
+1054      0604  2717
+1054      0605  2514
+1054      0606  0440
+1054      0607  3117
+1054      0610  2540
+1054      0611  1411
+1054      0612  1305
+1054      0613  4024
+1054      0614  1740
+1054      0615  2205
+1054      0616  2425
+1054      0617  2216
+1054      0620  4024
+1054      0621  1740
+1054      0622  0411
+1054      0623  0114
+1054      0624  5515
+1054                  WOULD YOU LIKE TO RETURN TO DIAL-MS?
+1055      0625  2377
+1055      0626  4350
+1055      0627  3157
+1055      0630  1651
+1055      0631  4074
+1055      0632  6134
+1055                  (Y/N) <1\"
+1056                  /
+1057                  /SUPER EXTENDED UNIT MODE PROMPT
+1060      0633  0623
+1060      0634  0522
+1060      0635  1101
+1060      0636  1440
+1060      0637  0411
+1060      0640  2313
+1060      0641  4011
+1060      0642  1623
+1060      0643  0124
+1060      0644  1414
+1060                  SEXTU,  TEXT "FSERIAL DISK INSATLLER
+1061      0645  0522
+1061
+1062      0646  4340
+1062      0647  4311
+1062      0650  1623
+1062      0651  2401
+1062      0652  1414
+1062      0653  4023
+1062      0654  2520
+1062      0655  0522
+1062      0656  4005
+1062      0657  3024
+1062      0660  0516
+1062      0661  0405
+1062      0662  0440
+1062      0663  2516
+-
+
+
+
+1062      0664  1124
+1062      0665  4020
+1062      0666  0124
+1062                  INSTALL SUPER EXTENDED UNIT PATCH
+1063      0667  0310
+1063      0670  4324
+1063      0671  1011
+1063      0672  2340
+1063      0673  2711
+1063      0674  1414
+1063      0675  4020
+1063      0676  0124
+1063      0677  0310
+1063      0700  4024
+1063      0701  1005
+1063      0702  4004
+1063      0703  1101
+1063      0704  1455
+1063      0705  1523
+1063      0706  4025
+1063      0707  1611
+1063      0710  2440
+1063      0711  2305
+1063      0712  1405
+1063      0713  0324
+1063      0714  1117
+1063                  THIS WILL PATCH THE DIAL-MS UNIT SELECTION
+1064      0715  1643
+1064      0716  1417
+1064      0717  0711
+1064      0720  0340
+1064      0721  2417
+1064      0722  4001
+1064      0723  1414
+1064      0724  1727
+1064      0725  4006
+1064      0726  2514
+1064      0727  1440
+1064      0730  2523
+1064      0731  0540
+1064      0732  1706
+1064      0733  4001
+1064      0734  1414
+1064      0735  4064
+1064      0736  4020
+1064      0737  1723
+1064      0740  2311
+1064      0741  0214
+1064                  LOGIC TO ALLOW FULL USE OF ALL 4 POSSIBLE
+1065      0742  0543
+1065      0743  2305
+1065      0744  2211
+1065      0745  0114
+1065      0746  4004
+1065      0747  1123
+1065      0750  1323
+1065      0751  5440
+1065      0752  0225
+1065      0753  2440
+1065      0754  1501
+1065      0755  3140
+1065      0756  0310
+1065      0757  0116
+-
+
+
+
+1065      0760  0705
+1065      0761  4023
+1065      0762  1715
+1065      0763  0540
+1065      0764  0205
+1065      0765  1001
+1065      0766  2611
+1065      0767  1722
+1065                  SERIAL DISKS, BUT MAY CHANGE SOME BEHAVIOR.
+1066      0770  5643
+1066      0771  2410
+1066      0772  0540
+1066      0773  0617
+1066      0774  1414
+1066      0775  1727
+1066      0776  1116
+1066      0777  0740
+1066      1000  0104
+1066      1001  0411
+1066      1002  2411
+1066      1003  1716
+1066      1004  0114
+1066      1005  4025
+1066      1006  1611
+1066      1007  2423
+1066      1010  4027
+1066      1011  1114
+1066      1012  1440
+1066      1013  0205
+1066      1014  4001
+1066      1015  0404
+1066      1016  0504
+1066                  THE FOLLOWING ADDITIONAL UNITS WILL BE ADDED:
+1067      1017  7243
+1067      1020  5240
+1067      1021  6260
+1067      1022  5562
+1067      1023  6572
+1067      1024  4023
+1067      1025  0522
+1067      1026  1101
+1067      1027  1440
+1067      1030  0411
+1067      1031  2313
+1067      1032  4061
+1067      1033  4010
+1067      1034  0114
+1067      1035  0640
+1067                  * 20-25: SERIAL DISK 1 HALF 2
+1070      1036  6243
+1070      1037  5240
+1070      1040  6360
+1070      1041  5563
+1070      1042  6572
+1070      1043  4023
+1070      1044  0522
+1070      1045  1101
+1070      1046  1440
+1070      1047  0411
+1070      1050  2313
+1070      1051  4062
+1070      1052  4010
+1070      1053  0114
+-
+
+
+
+1070      1054  0640
+1070                  * 30-35: SERIAL DISK 2 HALF 1
+1071      1055  6143
+1071      1056  5240
+1071      1057  6460
+1071      1060  5564
+1071      1061  6572
+1071      1062  4023
+1071      1063  0522
+1071      1064  1101
+1071      1065  1440
+1071      1066  0411
+1071      1067  2313
+1071      1070  4063
+1071      1071  4010
+1071      1072  0114
+1071      1073  0640
+1071                  * 40-45: SERIAL DISK 3 HALF 2
+1072      1074  6243
+1072      1075  1116
+1072      1076  2324
+1072      1077  0114
+1072      1100  1440
+1072      1101  2410
+1072      1102  0540
+1072      1103  2001
+1072      1104  2403
+1072      1105  1077
+1072      1106  4050
+1072      1107  3157
+1072      1110  1651
+1072      1111  4074
+1072      1112  6134
+1072                  INSTALL THE PATCH? (Y/N) <1\"
+1073                  /
+1074                  /COPY SYSTEM TO SERIALDISK PROMPT
+1075      1113  0623
+1075      1114  0522
+1075      1115  1101
+1075      1116  1404
+1075      1117  1123
+1075      1120  1340
+1075      1121  1116
+1075      1122  2324
+1075      1123  0114
+1075      1124  1405
+1075                  SCPSYS, TEXT "FSERIALDISK INSTALLER
+1076      1125  2243
+1076
+1077      1126  4043
+1077      1127  2717
+1077      1130  2514
+1077      1131  0440
+1077      1132  3117
+1077      1133  2540
+1077      1134  1411
+1077      1135  1305
+1077      1136  4024
+1077      1137  1740
+1077      1140  0317
+1077      1141  2031
+1077      1142  4024
+1077      1143  1005
+-
+
+
+
+1077      1144  4023
+1077      1145  3123
+1077      1146  2405
+1077      1147  1540
+1077      1150  0122
+1077                  WOULD YOU LIKE TO COPY THE SYSTEM AREA
+1100      1151  0501
+1100      1152  4310
+1100      1153  0622
+1100      1154  1715
+1100      1155  4014
+1100      1156  1116
+1100      1157  0324
+1100      1160  0120
+1100      1161  0540
+1100      1162  2516
+1100      1163  1124
+1100      1164  4060
+1100      1165  4024
+1100      1166  1740
+1100      1167  2410
+1100      1170  0540
+1100      1171  0611
+1100      1172  2223
+1100                  HFROM LINCTAPE UNIT 0 TO THE FIRST
+1101      1173  2443
+1101      1174  2305
+1101      1175  2211
+1101      1176  0114
+1101      1177  4004
+1101      1200  1123
+1101      1201  1340
+1101      1202  2516
+1101      1203  1124
+1101      1204  7740
+1101      1205  5031
+1101      1206  5716
+1101      1207  5140
+1101      1210  7461
+1101      1211  3400
+1101                  SERIAL DISK UNIT? (Y/N) <1\"
+1102                  /
+1103                  /ABORT/NONSTANDARD INSTALL MESSAGE
+1104      1212  0623
+1104      1213  0522
+1104      1214  1101
+1104      1215  1440
+1104      1216  0411
+1104      1217  2313
+1104      1220  4011
+1104      1221  1623
+1104      1222  2401
+1104      1223  1414
+1104                  SABRT,  TEXT "FSERIAL DISK INSTALLER
+1105      1224  0522
+1105
+1106      1225  4340
+1106      1226  4304
+1106      1227  0524
+1106      1230  0503
+1106      1231  2405
+1106      1232  0440
+1106      1233  1517
+-
+
+
+
+1106      1234  0411
+1106      1235  0611
+1106      1236  0504
+1106      1237  5703
+1106      1240  1722
+1106      1241  2225
+1106      1242  2024
+1106      1243  4011
+1106      1244  5717
+1106      1245  4022
+1106      1246  1725
+1106      1247  2411
+1106      1250  1605
+1106      1251  4004
+1106      1252  0124
+1106                  DETECTED MODIFIED/CORRUPT I/O ROUTINE DATA!
+1107      1253  0141
+1107      1254  4303
+1107      1255  0116
+1107      1256  1617
+1107      1257  2440
+1107      1260  0317
+1107      1261  1624
+1107      1262  1116
+1107      1263  2505
+1107                  CANNOT CONTINUE!
+1110      1264  4143
+1110      1265  2205
+1110      1266  2324
+1110      1267  0122
+1110      1270  2477
+1110      1271  4050
+1110      1272  3157
+1110      1273  1651
+1110      1274  4074
+1110      1275  6134
+1110                  RESTART? (Y/N) <1\"
 
 NO ERRORS
 
-AADDR  6632
-CMN    6636
-KBSCMD 6711
-KCC2   6402
-KRB2   6406
-KRS2   6404
-KSF2   6401
-K7     6702
+ABMSG  4363
+CSYLP  4161
+CSYSF  4146
+DF     2000
+DRDAR  4603
+DREAD  4613
+DRET   4625
+DWRITE 4620
+DWTAR  4607
+EXADR  3430
+EXTBL  4237
+HALT   4361
+HDLRSZ 0150
+HSYSAD 4420
+INEXTU 4064
+IOBLK1 0322
+IOBLK2 0323
+IOCTBK 0345
+IOMBLK 0365
+KEXDIF 4421
+KREAD  4600
+KRESET 4602
+KWRITE 4601
 -
 
 
 
-RCVTMP 6724
-RECV2  6742
-SACK   6667
-SCDF   6664
-SDONE  6716
-SEND   6724
-SEND2  6732
-SERR   6715
-SNDARG 6717
-SNDTMP 6742
-SRD    6677
-SREAD  6630
-SWRITE 6632
-SWT    6706
-TCF2   6412
-TLS2   6416
-TPC2   6414
-TSF2   6411
-WDCNT  6717
-WRFG   6664
-
-
-
-
-
-
-
+K1     4205
+K1000  4422
+LTADR  3630
+MTADR  3300
+NOCSY  4222
+NOSCP  4047
+QAINIT 1000
+QARFSH 1053
+SABRT  3212
+SASSYS 2300
+SCONF  2001
+SCPSYS 3113
+SDADR  2630
+SDONE  2544
+SEXTU  2633
+USPAT  6001
+WEXENT 4344
+WRENT  4315
+WRENTS 4325
+WREXLP 4135
+WRHNDR 4127
+WRPAT  4303
+WRPLP  4305
+WRSLP  4331
+YESNO  4373
+YNBUF  4371
+YNSTR  4405
 
 
 
