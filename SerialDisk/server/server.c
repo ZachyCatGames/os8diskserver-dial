@@ -114,10 +114,10 @@
 #define NUMBER_OF_BLOCKS 06260 //number of blocks in a single RK05 side
 #define FILE_LENGTH (NUMBER_OF_BLOCKS * BLOCK_SIZE * BYTES_PER_WORD) //length of RK05 image
 
-#define DIAL_SUB_DISK_BLK_COUNT 0400
+#define DIAL_SUB_DISK_BLK_COUNT 01000
 
-//#define DEBUG
-//#define REALLY_DEBUG
+#define DEBUG
+#define REALLY_DEBUG
 
 int terminate = 0;
 
@@ -468,7 +468,7 @@ int initialize_xfr()
 	int cdf_instr;
 	int num_pages;
 	int buffer_addr;
-	int sub_device;
+	int dial_partition;
 
 	// Determine disk number by converting to an index then dividing by 2.
 	selected_disk = (buf[0] - 'A') / 2;
@@ -537,12 +537,12 @@ int initialize_xfr()
 		// NOTE: we don't guard against writing past the end of a sub-device
 		// DEC didn't originally do this in their handlers, so we aren't either.
 
-		sub_device = current_word & 07;
+		dial_partition = current_word & 07;
 		current_word = decode_word(buf, 1);
 		buffer_addr = (current_word & 017) * BLOCK_SIZE;
 		field = (current_word >> 4) & 07;
 		cdf_instr = 06201 | (field << 3);
-		start_block = decode_word(buf, 2) + sub_device * DIAL_SUB_DISK_BLK_COUNT;
+		start_block = decode_word(buf, 2) + dial_partition * DIAL_SUB_DISK_BLK_COUNT;
 		current_word = decode_word(buf, 3);
 		num_pages = current_word * 2; // this is 256 word blocks instead of 128 word pages/os8 records
 
